@@ -90,3 +90,41 @@ def test_short_or_garbage_response_handled():
     r = parse_response(b"\x00" * 10)
     assert not r.reachable and r.error
     assert generate_ike_findings(r)[0].id == "QER-IKE-UNREACHABLE"
+
+
+def test_scan_ike_end_to_end_over_loopback_socket():
+    # Exercises the real UDP send/recv path of scan_ike() against a local
+    # responder (the unit tests above only feed parse_response bytes directly).
+    import socket
+    import threading
+
+    from qer.ikescan import scan_ike
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.settimeout(5)
+    port = srv.getsockname()[1]
+    response = _response([
+        _transform(False, _T_ENCR, 20, _keylen(256)),
+        _transform(False, _T_PRF, 5),
+        _transform(False, _T_INTEG, 12),
+        _transform(True, _T_DH, 19),                    # ECP-256
+    ])
+
+    def _responder():
+        try:
+            _data, addr = srv.recvfrom(4096)
+            srv.sendto(response, addr)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_responder, daemon=True)
+    t.start()
+    try:
+        r = scan_ike("127.0.0.1", port=port, timeout=3)
+    finally:
+        srv.close()
+
+    assert r.reachable and r.raw_response_hex
+    assert r.chosen["dh-group"]["name"] == "ECP-256"
+    assert any(f.id == "QER-IKE-DH" for f in r.findings)

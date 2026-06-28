@@ -1,5 +1,9 @@
 # GreyNOC Quantum Exposure Radar (QER)
 
+[![CI](https://github.com/GreyNOC/QER/actions/workflows/ci.yml/badge.svg)](https://github.com/GreyNOC/QER/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 > Don't build a new cipher. Build the thing defenders actually lack: **visibility.**
 
 QER is a **defensive** scanner and monitor that builds a live cryptographic bill
@@ -195,6 +199,7 @@ classification, and NDJSON SIEM feed:
 
 ```bash
 qer code . --min-severity medium
+qer code . --cyclonedx cbom.json   # emit a CycloneDX 1.6 CBOM of code crypto (file:line evidence)
 ```
 
 Every finding carries a `file:line` location. The scan is **heuristic**
@@ -254,7 +259,7 @@ qer/
   targets.py     load AssetProfiles from file / CLI
   cli.py         argparse entrypoint (`qer scan` / `code` / `passive` / `export` / `ike`)
   siem/          json/ndjson + cyclonedx (CBOM) + stix + html dashboard + sigma/splunk/kql/zeek
-tests/           112 offline unit tests for the pure logic
+tests/           114 offline unit tests for the pure logic
 ```
 
 Run the tests:

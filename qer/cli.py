@@ -26,7 +26,7 @@ from .report import (render_code_console, render_console, render_ike_console,
                      render_passive_console)
 from .scanner import scan_targets
 from .scoring import generate_findings, score_endpoint
-from .siem import EXPORTERS, json_out
+from .siem import EXPORTERS, cyclonedx, json_out
 from .targets import load_targets, profiles_from_args
 
 _EXPORT_FILENAMES = {
@@ -202,6 +202,8 @@ def _cmd_code(args) -> int:
         _write_file(args.json, json_out.code_to_json(report, meta))
     if args.ndjson:
         _write_file(args.ndjson, json_out.code_to_ndjson(report, meta))
+    if args.cyclonedx:
+        _write_file(args.cyclonedx, cyclonedx.code_to_cyclonedx(report, meta))
 
     min_sev = _SEVERITY_BY_NAME.get(args.min_severity, Severity.INFO)
     print(render_code_console(report, meta, color=_want_color(args.no_color), min_severity=min_sev))
@@ -317,6 +319,9 @@ def _cmd_ike(args) -> int:
         print(f"wrote {args.json}", file=sys.stderr)
 
     print(render_ike_console(result, meta, color=_want_color(args.no_color)))
+    if args.raw and result.raw_response_hex:
+        print(f"\nraw IKE response ({len(result.raw_response_hex) // 2} bytes):", file=sys.stderr)
+        print(result.raw_response_hex, file=sys.stderr)
 
     if args.fail_on != "none":
         threshold = _SEVERITY_BY_NAME[args.fail_on]
@@ -369,6 +374,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("path", help="file or directory to scan")
     c.add_argument("--json", help="write the full JSON report to this path")
     c.add_argument("--ndjson", help="write the NDJSON findings feed to this path")
+    c.add_argument("--cyclonedx", help="write a CycloneDX 1.6 CBOM to this path")
     c.add_argument("--min-severity", default="info", choices=list(_SEVERITY_BY_NAME),
                    help="hide findings below this severity")
     c.add_argument("--fail-on", default="none", choices=["none"] + list(_SEVERITY_BY_NAME),
@@ -402,6 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     ik.add_argument("--port", type=int, default=500, help="IKE UDP port (default 500)")
     ik.add_argument("--timeout", type=float, default=5.0, help="UDP response timeout seconds (default 5)")
     ik.add_argument("--json", help="write the JSON result to this path")
+    ik.add_argument("--raw", action="store_true", help="print the gateway's raw IKE response hex")
     ik.add_argument("--fail-on", default="none", choices=["none"] + list(_SEVERITY_BY_NAME),
                     help="exit code 2 if any finding reaches this severity (CI gate)")
     ik.add_argument("--no-color", action="store_true", help="disable ANSI colour")

@@ -183,3 +183,116 @@ def to_cyclonedx(reports: list[EndpointReport], meta: Optional[dict] = None) -> 
         "components": list(algorithms.values()) + other_components,
     }
     return json.dumps(_prune(bom), indent=2)
+
+
+# --------------------------------------------------------------------------- #
+# Code-scan CBOM: map qer.codescan findings to crypto-asset / library components
+# --------------------------------------------------------------------------- #
+
+# finding id -> (algorithm name, CycloneDX primitive)
+_CODE_ALGO = {
+    "QER-CODE-RSA": ("RSA", "pke"),
+    "QER-CODE-EC": ("ECDSA/ECDH", "signature"),
+    "QER-CODE-EDDSA": ("Ed25519/X25519", "signature"),
+    "QER-CODE-DH": ("Diffie-Hellman", "key-agree"),
+    "QER-CODE-DSA": ("DSA", "signature"),
+    "QER-CODE-MD5": ("MD5", "hash"),
+    "QER-CODE-SHA1": ("SHA-1", "hash"),
+    "QER-CODE-WEAKCIPHER": ("DES/3DES/RC4", "block-cipher"),
+    "QER-CODE-JWT-ASYM": ("JWT RS/ES/PS", "signature"),
+    "QER-CODE-JWT-EDDSA": ("JWT EdDSA", "signature"),
+    "QER-CODE-JWT-NONE": ("JWT alg=none", "signature"),
+    "QER-CODE-SAML-SIG": ("XML-DSig RSA/ECDSA/DSA", "signature"),
+    "QER-CODE-SAML-WEAK": ("XML-DSig SHA-1/MD5", "signature"),
+    "QER-CODE-PQ": ("post-quantum", "kem"),
+}
+_CODE_MATERIAL = {
+    "QER-CODE-PRIVKEY": "private-key", "QER-CODE-KEYFILE": "private-key",
+    "QER-CODE-SSHKEY": "private-key", "QER-CODE-CERT": "certificate",
+}
+
+
+def code_to_cyclonedx(report, meta: Optional[dict] = None) -> str:
+    """A CycloneDX 1.6 CBOM from a qer.codescan CodeReport: algorithm crypto-assets
+    (deduped, with file:line occurrences), crypto-dependency libraries, and
+    key/certificate material assets."""
+    meta = meta or {}
+    algos: dict = {}        # name -> {"primitive","risk","locs"}
+    libs: dict = {}         # lib -> {"risk","locs"}
+    components: list[dict] = []
+    material_i = 0          # monotonic index keeps material bom-refs unique
+
+    for f in report.findings:
+        if f.id in _CODE_ALGO:
+            name, prim = _CODE_ALGO[f.id]
+            e = algos.setdefault(name, {"primitive": prim, "risk": f.quantum_risk, "locs": []})
+            e["risk"] = max(e["risk"], f.quantum_risk)
+            e["locs"].append(f.location)
+        elif f.id == "QER-CODE-DEP":
+            lib = f.title.replace("Crypto dependency: ", "").strip()
+            libs.setdefault(lib, {"risk": f.quantum_risk, "locs": []})["locs"].append(f.location)
+        elif f.id in _CODE_MATERIAL:
+            asset = _CODE_MATERIAL[f.id]
+            crypto = ({"assetType": "certificate", "certificateProperties": {"certificateFormat": "X.509"}}
+                      if asset == "certificate"
+                      else {"assetType": "related-crypto-material",
+                            "relatedCryptoMaterialProperties": {"type": "private-key"}})
+            components.append({
+                "type": "cryptographic-asset",
+                "bom-ref": f"crypto/material/{_slug(f.id)}/{material_i}",
+                "name": f.title,
+                "cryptoProperties": crypto,
+                "evidence": {"occurrences": [{"location": f.location}]},
+                "properties": [{"name": "qer:quantumRisk", "value": f.quantum_risk.label}],
+            })
+            material_i += 1
+
+    for name, e in algos.items():
+        components.append({
+            "type": "cryptographic-asset",
+            "bom-ref": f"crypto/algorithm/{_slug(name)}",
+            "name": name,
+            "cryptoProperties": {
+                "assetType": "algorithm",
+                "algorithmProperties": {
+                    "primitive": e["primitive"],
+                    "executionEnvironment": "software-plain-ram",
+                    "nistQuantumSecurityLevel": _NIST_LEVEL.get(e["risk"], 0),
+                },
+            },
+            "evidence": {"occurrences": [{"location": loc} for loc in e["locs"][:25]]},
+            "properties": [
+                {"name": "qer:quantumRisk", "value": e["risk"].label},
+                {"name": "qer:occurrences", "value": str(len(e["locs"]))},
+            ],
+        })
+    for lib, e in libs.items():
+        components.append({
+            "type": "library",
+            "bom-ref": f"library/{_slug(lib)}",
+            "name": lib,
+            "evidence": {"occurrences": [{"location": loc} for loc in e["locs"][:25]]},
+            "properties": [
+                {"name": "qer:cryptoDependency", "value": "true"},
+                {"name": "qer:quantumRisk", "value": e["risk"].label},
+            ],
+        })
+
+    h = hashlib.sha256((report.root or "code").encode()).hexdigest()
+    bom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "serialNumber": f"urn:uuid:{uuid.UUID(bytes=bytes.fromhex(h)[:16], version=4)}",
+        "version": 1,
+        "metadata": {
+            "timestamp": meta.get("generated_at"),
+            "tools": {"components": [{
+                "type": "application", "author": "GreyNOC",
+                "name": "QER", "version": meta.get("tool_version", __version__),
+            }]},
+            "component": {"type": "application", "bom-ref": "qer-code-cbom-root",
+                          "name": f"QER code CBOM — {report.root}"},
+        },
+        "components": components,
+    }
+    return json.dumps(_prune(bom), indent=2)

@@ -99,3 +99,42 @@ def test_nist_quantum_level_present_on_algorithms():
 def test_no_explicit_nulls_in_output():
     raw = to_cyclonedx([_report()], META)
     assert "null" not in raw          # _prune drops every None
+
+
+def test_code_cbom_from_fixture():
+    import os
+
+    from qer.codescan import scan_path
+    from qer.siem.cyclonedx import code_to_cyclonedx
+    fixture = os.path.join(os.path.dirname(__file__), "fixtures", "sample_app")
+    report = scan_path(fixture)
+    raw = code_to_cyclonedx(report, META)
+    bom = json.loads(raw)
+    assert bom["bomFormat"] == "CycloneDX" and bom["specVersion"] == "1.6"
+    assert _CDX_UUID.match(bom["serialNumber"])
+    types = {c["type"] for c in bom["components"]}
+    assert "cryptographic-asset" in types and "library" in types     # algorithms + crypto deps
+    algs = [c for c in bom["components"]
+            if c.get("cryptoProperties", {}).get("assetType") == "algorithm"]
+    assert algs
+    occ = algs[0]["evidence"]["occurrences"]
+    assert occ and ":" in occ[0]["location"]                          # file:line evidence
+    assert "nistQuantumSecurityLevel" in algs[0]["cryptoProperties"]["algorithmProperties"]
+    assert "null" not in raw
+    refs = [c["bom-ref"] for c in bom["components"]]
+    assert len(refs) == len(set(refs))               # all bom-refs unique (CDX requires it)
+
+
+def test_code_cbom_material_refs_unique_for_slug_colliding_paths():
+    # Two private keys at paths that slug identically must not collide on bom-ref.
+    from qer.codescan import CodeReport
+    from qer.models import Finding, QuantumRisk, Severity
+    from qer.siem.cyclonedx import code_to_cyclonedx
+    mk = lambda loc: Finding(id="QER-CODE-PRIVKEY", title="key", severity=Severity.HIGH,
+                             quantum_risk=QuantumRisk.QUANTUM_VULNERABLE, category="secret",
+                             host="(code)", port=0, description="hardcoded key", location=loc)
+    report = CodeReport(root="r", files_scanned=2,
+                        findings=[mk("keys/prod.pem:1"), mk("keys-prod.pem:1")])
+    bom = json.loads(code_to_cyclonedx(report, META))
+    refs = [c["bom-ref"] for c in bom["components"]]
+    assert len(refs) == len(set(refs)) == 2

@@ -70,6 +70,7 @@ class IkeResult:
     notifies: list = field(default_factory=list)
     primitives: list = field(default_factory=list)
     findings: list = field(default_factory=list)
+    raw_response_hex: Optional[str] = None        # the gateway's raw bytes (validation evidence)
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +271,7 @@ def scan_ike(host: str, port: int = 500, timeout: float = 5.0,
         sock.close()
 
     result = parse_response(data, host, port)
+    result.raw_response_hex = data.hex()
     classify(result)
     result.findings = generate_ike_findings(result)
     return result
