@@ -185,6 +185,7 @@ classification, and NDJSON SIEM feed:
 * asymmetric usage (RSA / DSA / DH / ECDSA / Ed25519 / X25519) — quantum‑vulnerable
 * broken‑now primitives (MD5, SHA‑1, DES/3DES, RC4)
 * JWT/JWS signing algorithms — `RS*/ES*/PS*/EdDSA`, and the dangerous `alg:none` (critical)
+* SAML / XML‑DSig signature & digest methods — SHA‑1/MD5 (broken), RSA/ECDSA XML signatures (quantum‑vulnerable), plus SAML libraries
 * post‑quantum libraries (ML‑KEM/Kyber, ML‑DSA/Dilithium, SLH‑DSA, liboqs) — a *good* signal
 * hardcoded PEM private keys (a secret‑in‑repo finding) and certificates
 * SSH keys (by type) and crypto libraries in dependency manifests
@@ -248,7 +249,7 @@ qer/
   targets.py     load AssetProfiles from file / CLI
   cli.py         argparse entrypoint (`qer scan`, `qer code`, `qer passive`, `qer export`)
   siem/          json/ndjson + cyclonedx (CBOM) + html dashboard + sigma/splunk/kql/zeek
-tests/           93 offline unit tests for the pure logic
+tests/           95 offline unit tests for the pure logic
 ```
 
 Run the tests:
@@ -296,8 +297,8 @@ dependency scanner. Still ahead:
 - [x] **Code & dependency scan** — RSA/ECDSA/DH usage, crypto‑library imports,
       JWT signing algorithms, hardcoded keys, dependency manifests ([codescan.py](qer/codescan.py)).
 - [x] **Full certificate‑chain / PKI CBOM** — raw TLS 1.2 chain capture ([cert_chain.py](qer/cert_chain.py)).
+- [x] **SAML signing‑method** detection in the code scanner ([codescan.py](qer/codescan.py)).
 - [ ] **VPN (IKE/IPsec) crypto inventory.**
-- [ ] **SAML signing‑method** detection in the code scanner.
 - [x] **CycloneDX 1.6 CBOM output** — standards-compliant cryptographic bill of materials ([cyclonedx.py](qer/siem/cyclonedx.py)).
 - [x] **`qer export`** — re‑emit any format from a saved JSON report, no re-scan.
 - [x] **Web "radar" dashboard** — self-contained offline HTML ([html_report.py](qer/siem/html_report.py)).

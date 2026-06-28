@@ -237,6 +237,7 @@ _CATEGORY_TITLES = {
     "code-weak": "Broken / legacy primitives",
     "code-asymmetric": "Quantum-vulnerable asymmetric crypto",
     "code-jwt": "JWT / JWS signing",
+    "code-saml": "SAML / XML-DSig signing",
     "code-dependency": "Crypto dependencies",
     "code-inventory": "Crypto inventory",
     "code-pq": "Post-quantum (good)",
@@ -258,8 +259,8 @@ def render_code_console(report, meta: dict | None = None, color: bool = True,
     for f in shown:
         by_cat.setdefault(f.category, []).append(f)
 
-    order = ["secret", "code-weak", "code-jwt", "code-asymmetric", "code-dependency",
-             "code-inventory", "code-pq"]
+    order = ["secret", "code-weak", "code-jwt", "code-saml", "code-asymmetric",
+             "code-dependency", "code-inventory", "code-pq"]
     for cat in order + [c for c in by_cat if c not in order]:
         group = by_cat.get(cat)
         if not group:

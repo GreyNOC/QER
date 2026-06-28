@@ -61,7 +61,17 @@ CRYPTO_LIBS = {
     "bouncycastle": (Severity.INFO, "General crypto toolkit."),
     "bcprov": (Severity.INFO, "BouncyCastle provider."),
     "openssl": (Severity.INFO, "OpenSSL bindings."),
+    "python3-saml": (Severity.MEDIUM, "SAML SSO library — RSA/ECDSA XML signatures (quantum-vulnerable)."),
+    "pysaml2": (Severity.MEDIUM, "SAML2 library — RSA/ECDSA XML signatures (quantum-vulnerable)."),
+    "ruby-saml": (Severity.MEDIUM, "SAML library — XML signatures (quantum-vulnerable)."),
+    "passport-saml": (Severity.MEDIUM, "SAML library — XML signatures (quantum-vulnerable)."),
+    "samlify": (Severity.MEDIUM, "SAML library — XML signatures (quantum-vulnerable)."),
+    "opensaml": (Severity.MEDIUM, "SAML library — XML signatures (quantum-vulnerable)."),
 }
+
+# Libraries whose primary purpose is quantum-vulnerable asymmetric crypto.
+_QV_LIBS = {"rsa", "ecdsa", "elliptic", "python3-saml", "pysaml2", "ruby-saml",
+            "passport-saml", "samlify", "opensaml"}
 
 
 @dataclass
@@ -124,6 +134,16 @@ _RULES = [
     _r(r'(?i)"alg"\s*:\s*"none"',
        "QER-CODE-JWT-NONE", 'JWT "alg":"none" (signature stripping risk)', BN, Severity.CRITICAL,
        "code-jwt", "Never accept alg=none; it disables signature verification."),
+    # --- SAML / XML-DSig signing ---
+    _r(r'(?i)(xmldsig#rsa-sha1|xmldsig#dsa-sha1|xmldsig#hmac-sha1|2000/09/xmldsig#sha1|xmldsig-more#rsa-md5)',
+       "QER-CODE-SAML-WEAK", "Broken SAML/XML-DSig algorithm (SHA-1 / MD5)", BN, Severity.HIGH, "code-saml",
+       "SHA-1/MD5 XML signatures and digests are broken; require SHA-256 or stronger."),
+    _r(r'(?i)(xmldsig-more#(?:rsa|ecdsa)-sha(?:224|256|384|512)|xmldsig-more#sha\d+-rsa-mgf1|xmldsig11#dsa-sha(?:256|384))',
+       "QER-CODE-SAML-SIG", "Quantum-vulnerable SAML/XML-DSig signature (RSA/ECDSA/DSA)", QV, Severity.MEDIUM,
+       "code-saml", "RSA/ECDSA/DSA XML signatures (incl. RSA-PSS) are quantum-vulnerable; track for PQC migration of the IdP/SP."),
+    _r(r'(?i)(urn:oasis:names:tc:SAML:2\.0|xmldsig(?:11|-more)?#|<(?:[\w.-]+:)?(?:EntityDescriptor|AuthnRequest)\b)',
+       "QER-CODE-SAML", "SAML / XML-DSig usage", QuantumRisk.PQ_SAFE, Severity.INFO, "code-saml",
+       "SAML federation detected; inventory the IdP/SP signing algorithms for PQC migration."),
     # --- post-quantum (good signal) ---
     _r(r'(?i)\b(ml-?kem|kyber|ml-?dsa|dilithium|slh-?dsa|sphincs|falcon|liboqs|pqcrypto)',
        "QER-CODE-PQ", "Post-quantum algorithm/library reference", PQ, Severity.INFO, "code-pq",
@@ -236,7 +256,7 @@ def _scan_manifest(relpath: str, name: str, text: str) -> list[Finding]:
             continue
         if re.search(rf"(?i)(?<![\w-]){re.escape(lib)}(?![\w-])", low):
             seen.add(lib)
-            risk = QV if sev in (Severity.MEDIUM,) and lib in ("rsa", "ecdsa", "elliptic") else QuantumRisk.PQ_SAFE
+            risk = QV if lib in _QV_LIBS else QuantumRisk.PQ_SAFE
             out.append(_finding(
                 "QER-CODE-DEP", f"Crypto dependency: {lib}", sev, risk, "code-dependency",
                 relpath, f"{name} declares '{lib}'", note))
