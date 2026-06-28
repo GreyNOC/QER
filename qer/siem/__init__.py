@@ -10,16 +10,17 @@ for specific platforms:
 * ``zeek``   — a Zeek script that flags quantum-vulnerable TLS on the wire in real time
 """
 
-from . import cyclonedx, json_out, kql, sigma, splunk, zeek
+from . import cyclonedx, html_report, json_out, kql, sigma, splunk, zeek
 
 EXPORTERS = {
     "json": json_out.to_json,
     "ndjson": json_out.to_ndjson,
     "cyclonedx": cyclonedx.to_cyclonedx,
+    "html": html_report.to_html,
     "sigma": sigma.to_sigma,
     "splunk": splunk.to_splunk,
     "kql": kql.to_kql,
     "zeek": zeek.to_zeek,
 }
 
-__all__ = ["json_out", "cyclonedx", "sigma", "splunk", "kql", "zeek", "EXPORTERS"]
+__all__ = ["json_out", "cyclonedx", "html_report", "sigma", "splunk", "kql", "zeek", "EXPORTERS"]

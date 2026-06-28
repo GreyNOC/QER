@@ -69,6 +69,9 @@ qer passive /var/log/zeek/ssl.log --min-connections 5
 # Scan once, re-emit to any format later (no re-scan)
 qer scan example.com --json report.json
 qer export -i report.json -f cyclonedx,sigma,splunk,kql --out-dir siem/
+
+# Self-contained HTML "radar" dashboard (open offline in any browser)
+qer scan -f data/targets.example.txt --format html --out-dir out   # -> out/qer-radar.html
 ```
 
 Example console output:
@@ -202,6 +205,7 @@ proof of exploitable usage. [codescan.py](qer/codescan.py)
 | `json` | Full nested report (CBOM + findings + scores) |
 | `ndjson` | One denormalised event per finding — the canonical SIEM feed |
 | `cyclonedx` | **CycloneDX 1.6 CBOM** — a standards-compliant cryptographic bill of materials (crypto-asset components for protocols, certificates, and algorithms) |
+| `html` | **Self-contained "radar" dashboard** — a single offline HTML file (no external deps) with the migration map, per-endpoint CBOM, PQ status, and findings |
 | `sigma` | Portable Sigma rules over the QER feed **and** over Zeek `ssl` telemetry |
 | `splunk` | SPL searches + `savedsearches.conf` alert stanzas (`sourcetype=qer:finding`) |
 | `kql` | Microsoft Sentinel / Log Analytics queries over a `QER_CL` custom table |
@@ -243,8 +247,8 @@ qer/
   report.py      console reports + executive migration map
   targets.py     load AssetProfiles from file / CLI
   cli.py         argparse entrypoint (`qer scan`, `qer code`, `qer passive`, `qer export`)
-  siem/          json/ndjson + cyclonedx (CBOM) + sigma/splunk/kql/zeek exporters
-tests/           88 offline unit tests for the pure logic
+  siem/          json/ndjson + cyclonedx (CBOM) + html dashboard + sigma/splunk/kql/zeek
+tests/           93 offline unit tests for the pure logic
 ```
 
 Run the tests:
@@ -296,7 +300,7 @@ dependency scanner. Still ahead:
 - [ ] **SAML signing‑method** detection in the code scanner.
 - [x] **CycloneDX 1.6 CBOM output** — standards-compliant cryptographic bill of materials ([cyclonedx.py](qer/siem/cyclonedx.py)).
 - [x] **`qer export`** — re‑emit any format from a saved JSON report, no re-scan.
-- [ ] **Web "radar" dashboard** over the JSON feed.
+- [x] **Web "radar" dashboard** — self-contained offline HTML ([html_report.py](qer/siem/html_report.py)).
 - [ ] **STIX/TAXII** output.
 
 ---
