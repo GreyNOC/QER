@@ -9,6 +9,7 @@ dist/
 .qer_baseline.json
 out/
 *.log
+!tests/fixtures/*.log
 .DS_Store
 .idea/
 .vscode/

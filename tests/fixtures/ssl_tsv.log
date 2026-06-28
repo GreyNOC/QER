@@ -1,0 +1,12 @@
+#separator \x09
+#set_separator	,
+#empty_field	(empty)
+#unset_field	-
+#path	ssl
+#fields	ts	uid	id.resp_h	id.resp_p	version	cipher	curve	server_name
+#types	time	string	addr	port	string	string	string	string
+1700000000.100	Ca	104.16.0.1	443	TLSv13	TLS_AES_256_GCM_SHA384	X25519MLKEM768	api.example.com
+1700000000.200	Cb	104.16.0.1	443	TLSv13	TLS_AES_256_GCM_SHA384	x25519	api.example.com
+1700000000.300	Cc	104.16.0.1	443	TLSv13	TLS_AES_128_GCM_SHA256	secp256r1	api.example.com
+1700000000.400	Cd	104.16.0.1	443	TLSv13	TLS_AES_256_GCM_SHA384	X25519MLKEM768	api.example.com
+1700000000.500	Ce	93.184.216.34	443	TLSv12	TLS_RSA_WITH_AES_128_GCM_SHA256	-	legacy.example.com
