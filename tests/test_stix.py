@@ -103,3 +103,13 @@ def test_timestamp_always_valid_utc_z():
               "2026-06-27T22:39:51", "2026-06-27T22:39:51Z", "not-a-date", ""]:
         out = _stix_ts({"generated_at": v})
         assert _TS.match(out), (v, out)        # always a valid STIX UTC timestamp
+
+
+def test_labels_omit_empty_category():
+    rep = _report()
+    rep.findings[0] = Finding(id="X", title="t", severity=Severity.HIGH,
+                              quantum_risk=QuantumRisk.QUANTUM_VULNERABLE, category="",
+                              host="example.com", port=443, description="d")
+    objs = json.loads(to_stix([rep], META))["objects"]
+    vuln = next(o for o in objs if o["type"] == "vulnerability")
+    assert "" not in vuln["labels"] and vuln["labels"] == ["quantum-vulnerable"]

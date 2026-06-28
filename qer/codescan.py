@@ -158,8 +158,11 @@ _RULES = [
        "code-inventory", "Inventory only; review how the library is used."),
 ]
 
+# Body is length-bounded so an unterminated `-----BEGIN` can't scan to EOF on
+# every marker (which is O(n^2) and a DoS on a hostile repo); a real PEM block
+# is well under 100 KB. Callers also gate on a closing marker being present.
 _PEM_BLOCK = re.compile(
-    r"-----BEGIN ([A-Z0-9 ]+?)-----(.*?)-----END \1-----", re.DOTALL)
+    r"-----BEGIN ([A-Z0-9 ]+?)-----(.{0,100000}?)-----END \1-----", re.DOTALL)
 _SSH_KEY = re.compile(
     r"\b(ssh-rsa|ssh-dss|ecdsa-sha2-nistp\d+|ssh-ed25519|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp\d+@openssh\.com)\b")
 _SSH_RISK = {
@@ -328,7 +331,7 @@ def scan_path(root: str, max_file_bytes: int = MAX_FILE_BYTES) -> CodeReport:
 
         report.files_scanned += 1
         report.findings.extend(_scan_source(rel, text))
-        if "-----BEGIN" in text:
+        if "-----BEGIN" in text and "-----END" in text:
             report.findings.extend(_scan_pem(rel, text))
         if name in ("authorized_keys", "known_hosts") or name.endswith(".pub") or "ssh-" in text[:4096]:
             report.findings.extend(_scan_ssh(rel, text))

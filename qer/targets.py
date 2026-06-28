@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import socket
 from typing import Iterable
 
 from .models import AssetProfile, Exposure
@@ -41,6 +42,12 @@ def split_host_port(token: str, default_port: int = 443) -> tuple[str, int]:
         host, _, rest = token[1:].partition("]")
         port = int(rest[1:]) if rest.startswith(":") and rest[1:].isdigit() else default_port
         return host, port
+    if token.count(":") > 1:                 # bare IPv6 literal, e.g. 2001:db8::1
+        try:
+            socket.inet_pton(socket.AF_INET6, token)
+            return token, default_port
+        except OSError:
+            pass
     if ":" in token:
         head, _, tail = token.rpartition(":")
         if tail.isdigit():

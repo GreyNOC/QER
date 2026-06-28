@@ -26,6 +26,15 @@ def test_client_hello_is_well_formed_and_offers_group():
     assert b"\x11\xec" in rec                # X25519MLKEM768 codepoint advertised
 
 
+def test_hrr_random_is_the_rfc8446_value():
+    # Regression for the corrupted magic constant that silently broke PQ-enforce
+    # detection (probe_preference always returned "tolerate").
+    from qer.pqprobe import _HRR_RANDOM
+    assert len(_HRR_RANDOM) == 32
+    assert _HRR_RANDOM == bytes.fromhex(
+        "cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c")
+
+
 def test_detects_hello_retry_request():
     msg = make_server_hello(PQ_GROUPS["X25519MLKEM768"], hrr=True)
     assert _is_hello_retry(msg) is True

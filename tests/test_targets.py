@@ -19,6 +19,14 @@ def test_split_host_port_ipv6_bracket():
     assert split_host_port("[2001:db8::1]:9443") == ("2001:db8::1", 9443)
 
 
+def test_split_host_port_bare_ipv6_literal():
+    # A bare IPv6 literal must not be mis-split on its last colon.
+    assert split_host_port("2001:db8::1") == ("2001:db8::1", 443)
+    assert split_host_port("::1") == ("::1", 443)
+    assert split_host_port("fe80::1") == ("fe80::1", 443)
+    assert split_host_port("host:8443") == ("host", 8443)        # normal host:port unaffected
+
+
 def test_parse_target_line_with_annotations():
     p = parse_target_line('payments.internal:8443 label="Card processor" '
                           'sensitivity=5 shelf_life=15 exposure=external agility=2 expect_pq=true')

@@ -50,10 +50,12 @@ PQ_GROUPS: dict[str, int] = {
 }
 DEFAULT_PROBE_GROUPS = ["X25519MLKEM768", "X25519Kyber768Draft00"]
 
-# A HelloRetryRequest is a ServerHello carrying this magic value in `random`.
+# A HelloRetryRequest is a ServerHello carrying this magic value in `random`
+# (RFC 8446 §4.1.3: SHA-256 of "HelloRetryRequest").
 _HRR_RANDOM = bytes.fromhex(
-    "cf21ad74e59a6111be1d8c021e65b891c2a2116167abb8c5e079e09e2c8a8339c"[:64]
+    "cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c"
 )
+assert len(_HRR_RANDOM) == 32, "HRR magic random must be 32 bytes"
 
 _TLS13_CIPHERS = [0x1301, 0x1302, 0x1303]
 _SIG_ALGS = [0x0804, 0x0403, 0x0401, 0x0805, 0x0806, 0x0807, 0x0501, 0x0601]

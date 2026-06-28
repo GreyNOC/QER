@@ -4,6 +4,33 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-06-28
+
+A whole-project QA/QC pass (multi-agent audit + dynamic verification) found and
+fixed 17 issues. Test coverage rose from 59% to 76%; 142 tests.
+
+### Fixed
+- **PQ enforcement detection was silently broken** — the HelloRetryRequest magic
+  random (RFC 8446 §4.1.3) had a corrupted byte, so `qer scan` always reported a
+  PQ-enforcing server as merely *tolerating* PQ (the `QER-PQ-OK (enforced)` and
+  `QER-DG-PQ-ENFORCE` paths could never fire). Corrected the constant.
+- **CycloneDX**: duplicate `bom-ref`s when the same `host:port` appeared in more
+  than one report (and when a malformed cert had empty algorithm names) — now
+  uniquely indexed, so the CBOM stays schema-valid.
+- **Code scanner ReDoS**: an unterminated `-----BEGIN` flood in a scanned repo
+  caused O(n²) backtracking (minutes). The PEM body is now length-bounded and
+  gated on a closing marker.
+- **`qer export` crash**: a valid-JSON but malformed report (`endpoints` not a
+  list, or non-dict elements) raised an uncaught `AttributeError`; now a clean error.
+- **Bare IPv6 targets** (e.g. `2001:db8::1`) were mis-split into host/port.
+- **STIX**: an empty finding category no longer emits an empty `labels` string.
+- **Consistency**: plain PSK key exchange (classified PQ-safe) no longer scores a
+  non-zero HNDL risk.
+
+### Internal
+- Added test suites for the console renderers, JSON/Sigma/Splunk/KQL/Zeek
+  exporters, the CLI handlers, and `scanner._parse_certificate`.
+
 ## [0.1.2] — 2026-06-28
 
 ### Added
@@ -66,4 +93,7 @@ post-quantum (PQC) readiness monitor.
 - Built and hardened phase-by-phase; 15 real bugs caught and fixed by an
   adversarial multi-agent review pass.
 
+[0.1.3]: https://github.com/GreyNOC/QER/releases/tag/v0.1.3
+[0.1.2]: https://github.com/GreyNOC/QER/releases/tag/v0.1.2
+[0.1.1]: https://github.com/GreyNOC/QER/releases/tag/v0.1.1
 [0.1.0]: https://github.com/GreyNOC/QER/releases/tag/v0.1.0

@@ -50,6 +50,13 @@ def test_hndl_zero_for_pq_kex():
     assert hndl_risk(p, make_scan(kex="X25519MLKEM768", fs=True)) == 0
 
 
+def test_hndl_zero_for_plain_psk():
+    # Plain PSK has no Shor-breakable handshake -> not HNDL-exposed (consistent
+    # with classify marking it pq-safe).
+    p = AssetProfile(host="h", sensitivity=5, shelf_life_years=15, exposure=Exposure.EXTERNAL)
+    assert hndl_risk(p, make_scan(kex="PSK", fs=False)) == 0
+
+
 def test_proven_pq_support_sharply_reduces_hndl():
     p = AssetProfile(host="h", sensitivity=5, shelf_life_years=15, exposure=Exposure.EXTERNAL)
     classical = make_scan(kex="ECDHE", fs=True)

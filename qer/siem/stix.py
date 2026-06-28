@@ -116,7 +116,7 @@ def to_stix(reports: list[EndpointReport], meta: Optional[dict] = None) -> str:
                 "created_by_ref": qer_id,
                 "name": f.title or f.id,        # name is required; never emit empty
                 "description": f.description,
-                "labels": [f.quantum_risk.label, f.category],
+                "labels": [lbl for lbl in (f.quantum_risk.label, f.category) if lbl],
                 "external_references": ext_refs,
                 "x_qer_severity": f.severity.label,
                 "x_qer_quantum_risk": f.quantum_risk.label,

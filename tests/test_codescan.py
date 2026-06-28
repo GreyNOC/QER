@@ -72,3 +72,14 @@ def test_jwt_none_is_critical():
 def test_every_finding_has_a_location():
     report = scan_path(FIXTURE)
     assert all(f.location for f in report.findings)
+
+
+def test_unterminated_pem_flood_is_not_a_dos(tmp_path):
+    # A file full of `-----BEGIN` with no matching END used to be O(n^2) (minutes).
+    import time
+    p = tmp_path / "flood.txt"
+    p.write_text("-----BEGIN PRIVATE KEY-----\n" * 50000, encoding="utf-8")
+    start = time.monotonic()
+    report = scan_path(str(p))
+    assert time.monotonic() - start < 5.0
+    assert not any(f.id == "QER-CODE-PRIVKEY" for f in report.findings)

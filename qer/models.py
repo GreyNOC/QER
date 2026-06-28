@@ -314,7 +314,14 @@ def endpoint_report_from_dict(d: dict) -> EndpointReport:
 
 
 def reports_from_document(doc: dict) -> list[EndpointReport]:
-    """Rebuild the endpoint reports from a full QER JSON report document."""
+    """Rebuild the endpoint reports from a full QER JSON report document.
+
+    Tolerant of a malformed but valid-JSON document: a non-list ``endpoints``
+    raises ValueError (caught by the CLI), and non-dict elements are skipped
+    rather than crashing with AttributeError."""
     if not isinstance(doc, dict) or "endpoints" not in doc:
         raise ValueError("not a QER scan report (missing 'endpoints')")
-    return [endpoint_report_from_dict(e) for e in doc["endpoints"]]
+    endpoints = doc["endpoints"]
+    if not isinstance(endpoints, list):
+        raise ValueError("'endpoints' must be a list")
+    return [endpoint_report_from_dict(e) for e in endpoints if isinstance(e, dict)]

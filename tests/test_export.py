@@ -65,6 +65,23 @@ def test_rejects_non_qer_document():
         reports_from_document({"not": "a report"})
 
 
+def test_rejects_non_list_endpoints():
+    import pytest
+    with pytest.raises(ValueError):
+        reports_from_document({"endpoints": "abc"})
+
+
+def test_skips_non_dict_endpoint_elements():
+    assert reports_from_document({"endpoints": [1, None, "x"]}) == []
+
+
+def test_cli_export_on_garbage_report_is_graceful(tmp_path):
+    from qer.cli import main
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"endpoints":[1,2,3]}', encoding="utf-8")
+    assert main(["export", "-i", str(bad), "-f", "stix"]) == 1   # exit 1, not a traceback
+
+
 def test_enum_from_label_roundtrip():
     for r in QuantumRisk:
         assert QuantumRisk.from_label(r.label) is r

@@ -52,7 +52,7 @@ def _kex_hndl_factor(scan: ScanResult) -> float:
     if scan.pq_kex_negotiated:
         return 0.15
     if kex == "PSK":
-        return 0.2
+        return 0.0           # plain PSK has no Shor-breakable handshake -> not HNDL-exposed
     if scan.forward_secret is False:        # RSA key transport / static (EC)DH
         return 1.0
     if kex in ("ECDHE", "DHE"):             # forward secret classically, but Shor breaks the recorded handshake

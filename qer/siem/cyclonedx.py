@@ -85,7 +85,11 @@ def to_cyclonedx(reports: list[EndpointReport], meta: Optional[dict] = None) -> 
     other_components: list[dict] = []
 
     def algo_ref(name: str, role: str, risk: QuantumRisk) -> str:
-        ref = f"crypto/algorithm/{_slug(name)}"
+        # Dedup by name; but an empty/unknown name must not let a signature and a
+        # public-key algorithm collapse onto one shared 'unknown' component.
+        slug = _slug(name)
+        ref = (f"crypto/algorithm/{slug}" if name and name.strip()
+               else f"crypto/algorithm/{role}/{slug}")
         if ref not in algorithms:
             algorithms[ref] = {
                 "type": "cryptographic-asset",
@@ -103,7 +107,7 @@ def to_cyclonedx(reports: list[EndpointReport], meta: Optional[dict] = None) -> 
             }
         return ref
 
-    for r in reports:
+    for ridx, r in enumerate(reports):
         scan = r.scan
         if not scan.reachable:
             continue
@@ -112,7 +116,7 @@ def to_cyclonedx(reports: list[EndpointReport], meta: Optional[dict] = None) -> 
         if scan.negotiated_version:
             other_components.append({
                 "type": "cryptographic-asset",
-                "bom-ref": f"crypto/protocol/{host}",
+                "bom-ref": f"crypto/protocol/{ridx}/{host}",
                 "name": f"{scan.negotiated_version} ({host})",
                 "cryptoProperties": {
                     "assetType": "protocol",
@@ -142,7 +146,7 @@ def to_cyclonedx(reports: list[EndpointReport], meta: Optional[dict] = None) -> 
             key_ref = algo_ref(key_name, "certificate-key", c.quantum_risk)
             other_components.append({
                 "type": "cryptographic-asset",
-                "bom-ref": f"crypto/certificate/{host}/{idx}",
+                "bom-ref": f"crypto/certificate/{ridx}/{host}/{idx}",
                 "name": c.subject,
                 "cryptoProperties": {
                     "assetType": "certificate",

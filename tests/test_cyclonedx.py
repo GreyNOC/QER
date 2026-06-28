@@ -101,6 +101,31 @@ def test_no_explicit_nulls_in_output():
     assert "null" not in raw          # _prune drops every None
 
 
+def test_bom_refs_unique_for_duplicate_reports():
+    # Same host:port appearing twice (duplicate target / merged report) must not
+    # produce colliding bom-refs.
+    bom = json.loads(to_cyclonedx([_report("a"), _report("a")], META))
+    refs = [c["bom-ref"] for c in bom["components"]]
+    assert len(refs) == len(set(refs))
+
+
+def test_empty_cert_algorithms_do_not_conflate():
+    scan = ScanResult(host="h", port=443, reachable=True, negotiated_version="TLSv1.3",
+                      certificates=[CertInfo(subject="s", issuer="i", serial="1", position="leaf",
+                          public_key_algorithm="", signature_algorithm="",
+                          quantum_risk=QuantumRisk.QUANTUM_VULNERABLE)])
+    rep = EndpointReport(profile=AssetProfile(host="h"), scan=scan, findings=[],
+                         scores=Scores(risk_score=1, hndl_risk=1, migration_difficulty=1,
+                                       readiness=1, priority="OK"))
+    bom = json.loads(to_cyclonedx([rep], META))
+    cert = next(c for c in bom["components"]
+                if c["cryptoProperties"].get("assetType") == "certificate")
+    cp = cert["cryptoProperties"]["certificateProperties"]
+    assert cp["signatureAlgorithmRef"] != cp["subjectPublicKeyRef"]   # not collapsed to one
+    refs = [c["bom-ref"] for c in bom["components"]]
+    assert len(refs) == len(set(refs))
+
+
 def test_code_cbom_from_fixture():
     import os
 

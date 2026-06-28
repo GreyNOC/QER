@@ -64,6 +64,16 @@ def _want_color(no_color: bool) -> bool:
     return True
 
 
+def _write_text(path: str, content: str) -> None:
+    """Write text to a path (creating parents) and note it on stderr."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    print(f"wrote {path}", file=sys.stderr)
+
+
 def build_reports(profiles, timeout: float, enumerate_versions: bool,
                   workers: int, baseline_path: Optional[str], update_baseline: bool,
                   do_pq_probe: bool = True, pq_groups=None, do_chain: bool = True,
@@ -138,13 +148,7 @@ def _cmd_scan(args) -> int:
         pq_groups=pq_groups, do_chain=not args.no_chain, progress=progress)
 
     # Write artifacts first so a console-rendering hiccup never loses them.
-    def _write_file(path: str, content: str) -> None:
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        print(f"wrote {path}", file=sys.stderr)
+    _write_file = _write_text
 
     if args.json:
         _write_file(args.json, EXPORTERS["json"](reports, meta))
@@ -190,13 +194,7 @@ def _cmd_code(args) -> int:
         "files_scanned": report.files_scanned,
     }
 
-    def _write_file(path: str, content: str) -> None:
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        print(f"wrote {path}", file=sys.stderr)
+    _write_file = _write_text
 
     if args.json:
         _write_file(args.json, json_out.code_to_json(report, meta))
@@ -230,13 +228,7 @@ def _cmd_passive(args) -> int:
         "source": report.source,
     }
 
-    def _write_file(path: str, content: str) -> None:
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        print(f"wrote {path}", file=sys.stderr)
+    _write_file = _write_text
 
     if args.json:
         _write_file(args.json, json_out.passive_to_json(report, meta))
@@ -263,7 +255,7 @@ def _cmd_export(args) -> int:
         with open(args.input, "r", encoding="utf-8") as fh:
             doc = json.load(fh)
         reports = reports_from_document(doc)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
         print(f"error: could not load QER report from {args.input}: {exc}", file=sys.stderr)
         return 1
     if not reports:
@@ -287,10 +279,7 @@ def _cmd_export(args) -> int:
     if not args.out_dir and len(formats) == 1:
         content = EXPORTERS[formats[0]](reports, meta)
         if args.output:
-            os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-            with open(args.output, "w", encoding="utf-8") as fh:
-                fh.write(content)
-            print(f"wrote {args.output}", file=sys.stderr)
+            _write_text(args.output, content)
         else:
             print(content)                       # pipeable to stdout
         return 0
@@ -309,14 +298,9 @@ def _cmd_ike(args) -> int:
     meta = {"tool_version": __version__,
             "generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     if args.json:
-        parent = os.path.dirname(args.json)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
         doc = {"tool": "qer", "tool_version": __version__, "scan_type": "ike",
                "meta": meta, "result": to_serializable(result)}
-        with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=2)
-        print(f"wrote {args.json}", file=sys.stderr)
+        _write_text(args.json, json.dumps(doc, indent=2))
 
     print(render_ike_console(result, meta, color=_want_color(args.no_color)))
     if args.raw and result.raw_response_hex:

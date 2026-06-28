@@ -96,7 +96,7 @@ qer ike vpn.example.com --json out/ike.json
 Example console output:
 
 ```
-GreyNOC Quantum Exposure Radar  v0.1.0
+GreyNOC Quantum Exposure Radar  v0.1.3
 Scanned 3 endpoint(s), 3 reachable  |  OpenSSL 3.0.13
 
 CRYPTOGRAPHIC BILL OF MATERIALS
@@ -271,7 +271,7 @@ qer/
   targets.py     load AssetProfiles from file / CLI
   cli.py         argparse entrypoint (`qer scan` / `code` / `passive` / `export` / `ike`)
   siem/          json/ndjson + cyclonedx (CBOM) + stix + html dashboard + sigma/splunk/kql/zeek
-tests/           114 offline unit tests for the pure logic
+tests/           142 offline unit tests for the pure logic
 ```
 
 Run the tests:
