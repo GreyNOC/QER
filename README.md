@@ -72,6 +72,9 @@ qer export -i report.json -f cyclonedx,sigma,splunk,kql --out-dir siem/
 
 # Self-contained HTML "radar" dashboard (open offline in any browser)
 qer scan -f data/targets.example.txt --format html --out-dir out   # -> out/qer-radar.html
+
+# VPN gateway IKEv2 crypto inventory (UDP/500) — unit-verified, best-effort
+qer ike vpn.example.com --json out/ike.json
 ```
 
 Example console output:
@@ -242,15 +245,16 @@ qer/
   scanner.py     active TLS handshakes + certificate parsing
   pqprobe.py     raw TLS 1.3 probe: hybrid/PQ support + enforcement (preference) probe
   cert_chain.py  raw TLS 1.2 probe: full certificate-chain (PKI CBOM) capture
+  ikescan.py     raw IKEv2 IKE_SA_INIT probe: VPN/IPsec crypto inventory (`qer ike`)
   passive.py     measured PQ coverage from a Zeek ssl.log (`qer passive`)
   scoring.py     HNDL / risk / readiness scores + finding generation
   downgrade.py   baseline snapshot + regression diffing
   codescan.py    offline code & dependency crypto scanner (`qer code`)
   report.py      console reports + executive migration map
   targets.py     load AssetProfiles from file / CLI
-  cli.py         argparse entrypoint (`qer scan`, `qer code`, `qer passive`, `qer export`)
+  cli.py         argparse entrypoint (`qer scan` / `code` / `passive` / `export` / `ike`)
   siem/          json/ndjson + cyclonedx (CBOM) + stix + html dashboard + sigma/splunk/kql/zeek
-tests/           104 offline unit tests for the pure logic
+tests/           112 offline unit tests for the pure logic
 ```
 
 Run the tests:
@@ -282,6 +286,11 @@ QER is deliberately honest about its limits rather than overclaiming:
 * **The code scanner is heuristic** (regex over text). Like grep‑based SAST it
   matches crypto terms in comments and string literals; it is an inventory aid,
   not proof of exploitable usage.
+* **The IKEv2 scanner (`qer ike`) is unit‑verified, not live‑proven.** Its packet
+  builder and parser are round‑trip tested against constructed packets, but —
+  unlike every TLS feature — it has not been validated against a live VPN gateway
+  (no public IKE responder was available and UDP/500 egress is often filtered).
+  Treat live IKE results as best‑effort.
 * QER is an **inventory and risk‑visibility** tool. It does not exploit,
   intercept, or modify traffic. Scan only systems you are authorized to assess.
 
@@ -299,7 +308,7 @@ dependency scanner. Still ahead:
       JWT signing algorithms, hardcoded keys, dependency manifests ([codescan.py](qer/codescan.py)).
 - [x] **Full certificate‑chain / PKI CBOM** — raw TLS 1.2 chain capture ([cert_chain.py](qer/cert_chain.py)).
 - [x] **SAML signing‑method** detection in the code scanner ([codescan.py](qer/codescan.py)).
-- [ ] **VPN (IKE/IPsec) crypto inventory.**
+- [x] **VPN (IKE/IPsec) crypto inventory** — raw IKEv2 `IKE_SA_INIT` probe ([ikescan.py](qer/ikescan.py)). *Unit‑verified only* — see [Scope & honesty](#scope--honesty).
 - [x] **CycloneDX 1.6 CBOM output** — standards-compliant cryptographic bill of materials ([cyclonedx.py](qer/siem/cyclonedx.py)).
 - [x] **`qer export`** — re‑emit any format from a saved JSON report, no re-scan.
 - [x] **Web "radar" dashboard** — self-contained offline HTML ([html_report.py](qer/siem/html_report.py)).

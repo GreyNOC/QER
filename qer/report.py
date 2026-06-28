@@ -232,6 +232,44 @@ def render_passive_console(report, meta: dict | None = None, color: bool = True,
     return "\n".join(out)
 
 
+_IKE_RISK_COLOR = {"broken-now": "red", "quantum-vulnerable": "yellow",
+                   "quantum-weakened": "yellow", "pq-safe": "green"}
+
+
+def render_ike_console(result, meta: dict | None = None, color: bool = True) -> str:
+    paint = _Painter(color)
+    meta = meta or {}
+    out: list[str] = []
+    title = paint("GreyNOC Quantum Exposure Radar — IKE / IPsec scan", "bold", "magenta")
+    out.append(f"{title}  {paint('v' + str(meta.get('tool_version', '')), 'grey')}")
+    out.append(paint(f"{result.host}:{result.port}/udp", "bold"))
+    out.append(paint("note: IKE scanning is unit-verified, not live-proven — treat as best-effort.", "grey"))
+    out.append("")
+    if not result.reachable:
+        out.append(f"  {paint('no IKE response', 'grey')}  {result.error or ''}")
+        return "\n".join(out)
+
+    out.append(f"  IKEv{result.ike_version}   responder={result.responder}")
+    if result.chosen:
+        out.append(paint("  Negotiated transforms", "bold"))
+        for role in ("encryption", "prf", "integrity", "dh-group"):
+            info = result.chosen.get(role)
+            if not info:
+                continue
+            algo = info["name"] + (f"-{info['keylen']}" if info.get("keylen") else "")
+            rl = info.get("quantum_risk", "")
+            out.append(f"    {role:12} {algo:26} {paint(rl, _IKE_RISK_COLOR.get(rl, 'grey'))}")
+    if result.invalid_ke_group is not None:
+        out.append(f"    {paint('gateway requested DH group ' + str(result.invalid_ke_group), 'yellow')}")
+    out.append("")
+    if result.findings:
+        out.append(paint("  Findings", "bold"))
+        for f in sorted(result.findings, key=lambda x: -int(x.severity)):
+            scol, tag = _SEV_STYLE[f.severity]
+            out.append(f"    {paint(tag, scol, 'bold')}  {paint(f.id, 'grey')}  {f.title}")
+    return "\n".join(out)
+
+
 _CATEGORY_TITLES = {
     "secret": "Hardcoded secrets",
     "code-weak": "Broken / legacy primitives",

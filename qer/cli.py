@@ -19,9 +19,11 @@ from typing import Optional
 from . import __version__
 from .codescan import scan_path
 from .downgrade import build_baseline, diff_reports, load_baseline, save_baseline
-from .models import EndpointReport, Severity, reports_from_document
+from .ikescan import scan_ike
+from .models import EndpointReport, Severity, reports_from_document, to_serializable
 from .passive import measure
-from .report import render_code_console, render_console, render_passive_console
+from .report import (render_code_console, render_console, render_ike_console,
+                     render_passive_console)
 from .scanner import scan_targets
 from .scoring import generate_findings, score_endpoint
 from .siem import EXPORTERS, json_out
@@ -300,6 +302,31 @@ def _cmd_export(args) -> int:
     return 0
 
 
+def _cmd_ike(args) -> int:
+    result = scan_ike(args.host, port=args.port, timeout=args.timeout)
+    meta = {"tool_version": __version__,
+            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    if args.json:
+        parent = os.path.dirname(args.json)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        doc = {"tool": "qer", "tool_version": __version__, "scan_type": "ike",
+               "meta": meta, "result": to_serializable(result)}
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2)
+        print(f"wrote {args.json}", file=sys.stderr)
+
+    print(render_ike_console(result, meta, color=_want_color(args.no_color)))
+
+    if args.fail_on != "none":
+        threshold = _SEVERITY_BY_NAME[args.fail_on]
+        worst = max((f.severity for f in result.findings), default=Severity.INFO)
+        if worst >= threshold:
+            print(f"\nfail-on={args.fail_on}: highest finding severity is {worst.label}", file=sys.stderr)
+            return 2
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="qer",
@@ -369,6 +396,16 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("-o", "--output", help="write a single format to this path (else stdout)")
     e.add_argument("--out-dir", help="write each format to this directory")
     e.set_defaults(func=_cmd_export)
+
+    ik = sub.add_parser("ike", help="scan a VPN gateway's IKEv2 crypto over UDP/500 (unit-verified, best-effort)")
+    ik.add_argument("host", help="VPN gateway host or IP")
+    ik.add_argument("--port", type=int, default=500, help="IKE UDP port (default 500)")
+    ik.add_argument("--timeout", type=float, default=5.0, help="UDP response timeout seconds (default 5)")
+    ik.add_argument("--json", help="write the JSON result to this path")
+    ik.add_argument("--fail-on", default="none", choices=["none"] + list(_SEVERITY_BY_NAME),
+                    help="exit code 2 if any finding reaches this severity (CI gate)")
+    ik.add_argument("--no-color", action="store_true", help="disable ANSI colour")
+    ik.set_defaults(func=_cmd_ike)
     return p
 
 
