@@ -1,0 +1,4 @@
+pyjwt==2.8.0
+rsa==4.9
+cryptography>=42.0
+requests==2.31.0

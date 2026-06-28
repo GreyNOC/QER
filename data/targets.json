@@ -1,0 +1,33 @@
+{
+  "targets": [
+    {
+      "host": "github.com",
+      "port": 443,
+      "label": "Source control",
+      "sensitivity": 3,
+      "shelf_life_years": 4,
+      "exposure": "external",
+      "crypto_agility": 4
+    },
+    {
+      "host": "cloudflare.com",
+      "port": 443,
+      "label": "Edge/CDN",
+      "sensitivity": 2,
+      "shelf_life_years": 3,
+      "exposure": "external",
+      "crypto_agility": 5
+    },
+    {
+      "host": "payments.internal",
+      "port": 8443,
+      "label": "Card processor",
+      "sensitivity": 5,
+      "shelf_life_years": 15,
+      "exposure": "external",
+      "crypto_agility": 2,
+      "expect_pq": true,
+      "notes": "PCI scope; long data-retention; HNDL worst case."
+    }
+  ]
+}

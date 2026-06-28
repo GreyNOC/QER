@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.qer_baseline.json
+out/
+*.log
+.DS_Store
+.idea/
+.vscode/
+.claude/settings.local.json
+scratch_baseline.json

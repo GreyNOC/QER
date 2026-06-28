@@ -1,0 +1,15 @@
+# QER targets — one endpoint per line: host[:port] [key=value ...]
+# Annotations supply the business context the scanner can't see.
+#   sensitivity     1..5   how damaging is disclosure of this data
+#   shelf_life      years  how long the data must stay confidential (drives HNDL)
+#   exposure        internal | partner | external
+#   agility         1..5   5 = trivially swappable crypto, 1 = hardcoded/embedded
+#   expect_pq       true|false  this endpoint is supposed to negotiate hybrid/PQ KEX
+#   label           quoted human name
+
+github.com                 label="Source control" sensitivity=3 shelf_life=4 exposure=external agility=4
+cloudflare.com:443         label="Edge/CDN"       sensitivity=2 shelf_life=3 exposure=external agility=5
+www.google.com             label="Reference"      sensitivity=2 shelf_life=2 exposure=external agility=5
+
+# A high-stakes, long-retention asset — exactly the HNDL worst case:
+# payments.internal:8443   label="Card processor" sensitivity=5 shelf_life=15 exposure=external agility=2 expect_pq=true
