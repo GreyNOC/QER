@@ -7,6 +7,10 @@ build/
 dist/
 *.spec
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 .qer_baseline.json
 out/
 *.log
