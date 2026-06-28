@@ -59,6 +59,32 @@ or `pyinstaller --onefile --name qer --collect-submodules qer packaging/qer_entr
 qer-windows-x64.exe code . --cyclonedx cbom.json
 ```
 
+### Make `qer` a global command
+
+With the editable install (`pip install -e .`), `qer` is already on your PATH
+**while the venv is active**. To call `qer` from anywhere *without* activating
+the venv — e.g. when using the portable binary — drop it on your PATH:
+
+**Windows (PowerShell)** — copy the binary into a personal `bin` and add it to your user PATH (idempotent):
+
+```powershell
+$bin = "$env:USERPROFILE\bin"; New-Item -ItemType Directory -Force $bin | Out-Null
+Copy-Item .\dist\qer.exe "$bin\qer.exe" -Force   # or your downloaded qer-windows-x64.exe
+$p = [Environment]::GetEnvironmentVariable("Path","User")
+if (($p -split ';') -notcontains $bin) { [Environment]::SetEnvironmentVariable("Path", "$p;$bin", "User") }
+# open a NEW terminal, then:  qer --version
+```
+
+**Linux / macOS** — drop the binary on your PATH:
+
+```bash
+install -m 0755 qer-linux-x64 ~/.local/bin/qer    # ensure ~/.local/bin is on PATH
+qer --version
+```
+
+> A PATH change only takes effect in **newly opened** terminals — existing
+> windows read PATH at launch.
+
 ---
 
 ## Quick start
