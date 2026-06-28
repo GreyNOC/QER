@@ -47,13 +47,16 @@ pip install -e .                    # or: pip install -r requirements.txt
 Requires Python ≥ 3.10 and the [`cryptography`](https://pypi.org/project/cryptography/)
 package (for certificate parsing). Everything else is the standard library.
 
-**Portable Windows binary (no Python required):** download `qer.exe` from the
-[latest release](https://github.com/GreyNOC/QER/releases/latest) — a single
-self-contained executable. Build it yourself with `packaging/build-exe.ps1`.
+**Portable binary (no Python required):** download a single self-contained
+executable for **Linux / macOS / Windows** from the
+[latest release](https://github.com/GreyNOC/QER/releases/latest)
+(`qer-linux-x64`, `qer-macos-arm64`, `qer-windows-x64.exe`). On Linux/macOS,
+`chmod +x` it first. Build one yourself with `packaging/build-exe.ps1` (Windows)
+or `pyinstaller --onefile --name qer --collect-submodules qer packaging/qer_entry.py`.
 
-```bat
-qer.exe scan github.com
-qer.exe code . --cyclonedx cbom.json
+```bash
+./qer-linux-x64 scan github.com
+qer-windows-x64.exe code . --cyclonedx cbom.json
 ```
 
 ---

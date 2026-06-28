@@ -4,6 +4,15 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-06-28
+
+### Added
+- **Cross-platform release binaries.** A GitHub Actions release workflow
+  (`.github/workflows/release.yml`) builds a single-file `qer` binary for
+  **Linux (x64), macOS (arm64), and Windows (x64)** with PyInstaller on every
+  `v*` tag, runs the test suite on each, and attaches the binaries plus the
+  wheel and sdist to the GitHub Release automatically.
+
 ## [0.1.1] — 2026-06-28
 
 ### Added
