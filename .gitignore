@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+*.spec
 .pytest_cache/
 .qer_baseline.json
 out/

@@ -338,7 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="GreyNOC Quantum Exposure Radar — cryptographic bill-of-materials scanner "
                     "and post-quantum readiness monitor.")
     p.add_argument("--version", action="version", version=f"qer {__version__}")
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command", metavar="{scan,code,passive,export,ike}")
 
     s = sub.add_parser("scan", help="scan endpoints and build the CBOM / migration map")
     s.add_argument("hosts", nargs="*", help="targets as host[:port] (default port 443)")
@@ -430,6 +430,9 @@ def main(argv=None) -> int:
     _force_utf8()
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "func", None):     # no subcommand -> show help (friendly for the .exe)
+        parser.print_help()
+        return 0
     try:
         return args.func(args)
     except KeyboardInterrupt:  # pragma: no cover

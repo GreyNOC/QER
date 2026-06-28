@@ -4,6 +4,22 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-06-28
+
+### Added
+- **Portable single-file `qer.exe`** for Windows (built with PyInstaller) — runs
+  with no Python install. Attached to the release; build it yourself with
+  `packaging/build-exe.ps1`.
+
+### Changed
+- Running `qer` with no subcommand now prints help and exits 0 (instead of an
+  argparse error), which is friendlier when the `.exe` is launched directly.
+
+### Fixed
+- Committed the Zeek `ssl.log` test fixtures that the `*.log` gitignore rule had
+  excluded, so the test suite passes from a clean checkout / on CI. (`v0.1.0`'s
+  tag predates this fix; `v0.1.1` is the first release that is green on CI.)
+
 ## [0.1.0] — 2026-06-28
 
 First release. A defensive cryptographic bill-of-materials scanner and
