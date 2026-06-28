@@ -31,6 +31,7 @@ _EXPORT_FILENAMES = {
     "json": "qer-report.json",
     "ndjson": "qer-findings.ndjson",
     "cyclonedx": "qer-cbom.cdx.json",
+    "stix": "qer-stix.bundle.json",
     "html": "qer-radar.html",
     "sigma": "qer-rules.sigma.yml",
     "splunk": "qer-splunk.spl",

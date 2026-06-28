@@ -206,6 +206,7 @@ proof of exploitable usage. [codescan.py](qer/codescan.py)
 | `json` | Full nested report (CBOM + findings + scores) |
 | `ndjson` | One denormalised event per finding — the canonical SIEM feed |
 | `cyclonedx` | **CycloneDX 1.6 CBOM** — a standards-compliant cryptographic bill of materials (crypto-asset components for protocols, certificates, and algorithms) |
+| `stix` | **STIX 2.1 bundle** — actionable exposures as `vulnerability` SDOs linked to asset identities, ready to share over TAXII |
 | `html` | **Self-contained "radar" dashboard** — a single offline HTML file (no external deps) with the migration map, per-endpoint CBOM, PQ status, and findings |
 | `sigma` | Portable Sigma rules over the QER feed **and** over Zeek `ssl` telemetry |
 | `splunk` | SPL searches + `savedsearches.conf` alert stanzas (`sourcetype=qer:finding`) |
@@ -248,8 +249,8 @@ qer/
   report.py      console reports + executive migration map
   targets.py     load AssetProfiles from file / CLI
   cli.py         argparse entrypoint (`qer scan`, `qer code`, `qer passive`, `qer export`)
-  siem/          json/ndjson + cyclonedx (CBOM) + html dashboard + sigma/splunk/kql/zeek
-tests/           95 offline unit tests for the pure logic
+  siem/          json/ndjson + cyclonedx (CBOM) + stix + html dashboard + sigma/splunk/kql/zeek
+tests/           104 offline unit tests for the pure logic
 ```
 
 Run the tests:
@@ -302,7 +303,7 @@ dependency scanner. Still ahead:
 - [x] **CycloneDX 1.6 CBOM output** — standards-compliant cryptographic bill of materials ([cyclonedx.py](qer/siem/cyclonedx.py)).
 - [x] **`qer export`** — re‑emit any format from a saved JSON report, no re-scan.
 - [x] **Web "radar" dashboard** — self-contained offline HTML ([html_report.py](qer/siem/html_report.py)).
-- [ ] **STIX/TAXII** output.
+- [x] **STIX 2.1 / TAXII** output — exposures as a shareable STIX bundle ([stix.py](qer/siem/stix.py)).
 
 ---
 
