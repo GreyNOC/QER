@@ -35,6 +35,8 @@ from .classify import (classify_protocol, classify_public_key,
 from .models import (AssetProfile, CertInfo, CryptoPrimitive, QuantumRisk,
                      ScanResult)
 from .pqprobe import probe_pq
+from .starttls import negotiate as starttls_negotiate
+from .starttls import resolve_dialect
 
 try:
     from cryptography import x509
@@ -94,12 +96,16 @@ def _permissive_context(min_v=None, max_v=None, seclevel0: bool = False) -> ssl.
     return ctx
 
 
-def _connect(host: str, port: int, ctx: ssl.SSLContext, timeout: float):
-    """Open a TLS connection and return the wrapped socket (caller closes)."""
+def _connect(host: str, port: int, ctx: ssl.SSLContext, timeout: float,
+             starttls: Optional[str] = None):
+    """Open a (optionally STARTTLS-upgraded) TLS connection and return the
+    wrapped socket (caller closes)."""
     server_hostname = None if _is_ip_literal(host) else host
     raw = socket.create_connection((host, port), timeout=timeout)
     raw.settimeout(timeout)
     try:
+        if starttls:
+            starttls_negotiate(raw, starttls, host, timeout)
         return ctx.wrap_socket(raw, server_hostname=server_hostname)
     except Exception:
         raw.close()
@@ -212,13 +218,14 @@ def _certinfo_from_stdlib(cert_dict: dict) -> Optional[CertInfo]:
     )
 
 
-def _enumerate_versions(host: str, port: int, timeout: float) -> tuple[list[str], list[str]]:
+def _enumerate_versions(host: str, port: int, timeout: float,
+                        starttls: Optional[str] = None) -> tuple[list[str], list[str]]:
     """Probe each protocol version individually. Returns (supported, weak)."""
     supported, weak = [], []
     for label, ver in _VERSION_PROBES:
         ctx = _permissive_context(min_v=ver, max_v=ver, seclevel0=True)
         try:
-            s = _connect(host, port, ctx, timeout)
+            s = _connect(host, port, ctx, timeout, starttls=starttls)
             negotiated = s.version()
             s.close()
             if negotiated:
@@ -235,12 +242,14 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
                   pq_groups: Optional[list] = None, do_chain: bool = True) -> ScanResult:
     """Scan one endpoint and return a factual ``ScanResult``."""
     host, port = profile.host, profile.port
+    starttls = resolve_dialect(profile.starttls, port)
     result = ScanResult(
         host=host, port=port,
         openssl_version=ssl.OPENSSL_VERSION,
         scanned_at=dt.datetime.now(dt.timezone.utc).isoformat(),
         pq_testable=False,
         pq_kex_negotiated=None,
+        starttls=starttls,
     )
 
     try:
@@ -251,7 +260,7 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
     # --- primary handshake: what does the server actually prefer? ---
     try:
         ctx = _permissive_context()
-        sock = _connect(host, port, ctx, timeout)
+        sock = _connect(host, port, ctx, timeout, starttls=starttls)
     except Exception as exc:
         result.reachable = False
         result.error = f"{type(exc).__name__}: {exc}"
@@ -300,7 +309,8 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
 
     chain_infos: list[CertInfo] = []
     if do_chain and HAVE_CRYPTOGRAPHY:
-        chain_infos = _parse_chain(fetch_certificate_chain(host, port, timeout=timeout))
+        chain_infos = _parse_chain(
+            fetch_certificate_chain(host, port, timeout=timeout, starttls=starttls))
 
     if chain_infos:
         result.certificates = chain_infos
@@ -322,7 +332,7 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
 
     # --- version range enumeration ---
     if enumerate_versions:
-        supported, weak = _enumerate_versions(host, port, timeout)
+        supported, weak = _enumerate_versions(host, port, timeout, starttls=starttls)
         result.supported_versions = supported
         result.weak_versions = weak
         for label in weak:
@@ -336,7 +346,7 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
 
     # --- active post-quantum / hybrid key-exchange probe ---
     if do_pq_probe:
-        pq = probe_pq(host, port, timeout=timeout, groups=pq_groups)
+        pq = probe_pq(host, port, timeout=timeout, groups=pq_groups, starttls=starttls)
         result.pq_testable = pq["testable"]
         result.pq_groups_supported = pq["supported_groups"]
         result.pq_kex_negotiated = pq["pq_supported"]
@@ -351,6 +361,41 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
             ))
 
     return result
+
+
+def discover_services(hosts: Iterable[str], ports: Iterable[int],
+                      timeout: float = 2.0, workers: int = 64,
+                      progress=None) -> list[tuple[str, int]]:
+    """Concurrent TCP connect-scan across ``hosts`` × ``ports``. Returns the open
+    ``(host, port)`` pairs (sorted), so a CIDR sweep can find live TLS/STARTTLS
+    services before the (much heavier) deep crypto scan runs on just those."""
+    pairs = [(h, int(p)) for h in hosts for p in ports]
+    if not pairs:
+        return []
+
+    def _check(hp: tuple[str, int]) -> Optional[tuple[str, int]]:
+        host, port = hp
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            sock.close()
+            return hp
+        except OSError:
+            return None
+
+    open_pairs: list[tuple[str, int]] = []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pairs)))) as pool:
+        futures = {pool.submit(_check, hp): hp for hp in pairs}
+        for fut in as_completed(futures):
+            hp = futures[fut]
+            try:
+                res = fut.result()
+            except Exception:
+                res = None
+            if res:
+                open_pairs.append(res)
+            if progress:
+                progress(hp, res is not None)
+    return sorted(open_pairs)
 
 
 def scan_targets(profiles: Iterable[AssetProfile], timeout: float = 6.0,

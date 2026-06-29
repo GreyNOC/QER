@@ -19,14 +19,19 @@ from typing import Optional
 from . import __version__
 from .codescan import scan_path
 from .downgrade import build_baseline, diff_reports, load_baseline, save_baseline
+from .horizon import assess as assess_horizon
+from .horizon import fleet_horizon, horizon_finding, to_serializable_fleet
 from .ikescan import scan_ike
-from .models import EndpointReport, Severity, reports_from_document, to_serializable
+from .models import (AssetProfile, EndpointReport, Severity,
+                     reports_from_document, to_serializable)
 from .passive import measure
 from .report import (render_code_console, render_console, render_ike_console,
-                     render_passive_console)
-from .scanner import scan_targets
-from .scoring import generate_findings, score_endpoint
+                     render_passive_console, render_ssh_console)
+from .rules import evaluate_rules, load_rule_packs
+from .scanner import discover_services, scan_targets
+from .scoring import _kex_hndl_factor, generate_findings, score_endpoint
 from .siem import EXPORTERS, cyclonedx, json_out
+from .sshscan import scan_ssh
 from .targets import load_targets, profiles_from_args
 
 _EXPORT_FILENAMES = {
@@ -42,6 +47,30 @@ _EXPORT_FILENAMES = {
 }
 
 _SEVERITY_BY_NAME = {s.label: s for s in Severity}
+
+# Default ports for `--discover`: TLS-native and STARTTLS-capable services.
+DEFAULT_DISCOVERY_PORTS = [443, 8443, 9443, 993, 995, 465, 587, 25, 143, 110,
+                           389, 636, 5432, 3306, 990]
+
+
+def _parse_ports(spec: str) -> list[int]:
+    """Parse '443,8443,8000-8002' into a de-duplicated, ordered port list."""
+    ports: list[int] = []
+    for tok in spec.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" in tok:
+            lo, _, hi = tok.partition("-")
+            ports.extend(range(int(lo), int(hi) + 1))
+        else:
+            ports.append(int(tok))
+    seen, out = set(), []
+    for p in ports:
+        if 0 < p < 65536 and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _enable_windows_ansi() -> None:  # pragma: no cover - platform specific
@@ -77,20 +106,39 @@ def _write_text(path: str, content: str) -> None:
 def build_reports(profiles, timeout: float, enumerate_versions: bool,
                   workers: int, baseline_path: Optional[str], update_baseline: bool,
                   do_pq_probe: bool = True, pq_groups=None, do_chain: bool = True,
-                  progress=None) -> tuple[list[EndpointReport], dict]:
+                  progress=None, horizon_scenario: Optional[str] = None,
+                  crqc_year: Optional[int] = None, rule_paths: Optional[list] = None,
+                  use_builtin_rules: bool = True
+                  ) -> tuple[list[EndpointReport], dict, list]:
     scans = scan_targets(profiles, timeout=timeout,
                          enumerate_versions=enumerate_versions,
                          workers=workers, do_pq_probe=do_pq_probe,
                          pq_groups=pq_groups, do_chain=do_chain, progress=progress)
     by_key = {(s.host, s.port): s for s in scans}
 
+    rule_packs, rule_errors = load_rule_packs(rule_paths, use_builtin=use_builtin_rules)
+    for err in rule_errors:
+        print(f"warning: rule pack skipped: {err}", file=sys.stderr)
+
+    now = dt.datetime.now(dt.timezone.utc)
     reports: list[EndpointReport] = []
+    horizons: list = []
     for p in profiles:
         scan = by_key.get((p.host, p.port))
         if scan is None:
             continue
         scores = score_endpoint(p, scan)
         findings = generate_findings(p, scan, scores)
+        # Quantum exposure horizon (Mosca): years of overhang for this endpoint.
+        hndl_relevant = scan.reachable and _kex_hndl_factor(scan) > 0
+        h = assess_horizon(p, hndl_relevant, now.year, horizon_scenario, crqc_year)
+        horizons.append(h)
+        hf = horizon_finding(h)
+        if hf:
+            findings.append(hf)
+        # Declarative rule engine: append rule findings not already present.
+        existing = {f.id for f in findings}
+        findings.extend(rf for rf in evaluate_rules(rule_packs, scan) if rf.id not in existing)
         reports.append(EndpointReport(profile=p, scan=scan, findings=findings, scores=scores))
 
     # Downgrade monitor: diff against an existing baseline before updating it.
@@ -101,14 +149,16 @@ def build_reports(profiles, timeout: float, enumerate_versions: bool,
         if update_baseline or baseline is None:
             save_baseline(build_baseline(reports), baseline_path)
 
+    fleet = fleet_horizon(horizons)
     meta = {
         "tool_version": __version__,
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "generated_at": now.isoformat(),
         "openssl": ssl.OPENSSL_VERSION,
         "endpoints": len(reports),
         "reachable": sum(1 for r in reports if r.scan.reachable),
+        "horizon": to_serializable_fleet(fleet),
     }
-    return reports, meta
+    return reports, meta, horizons
 
 
 def _write_export(fmt: str, reports, meta, out_dir: str) -> str:
@@ -134,6 +184,32 @@ def _cmd_scan(args) -> int:
         print("error: no targets. Pass hosts positionally or use -f/--file.", file=sys.stderr)
         return 1
 
+    if args.starttls:                       # explicit flag overrides per-target inference
+        for p in profiles:
+            p.starttls = args.starttls
+
+    # Discovery sweep: connect-scan the seed hosts across a port set and keep only
+    # the open services to deep-scan. Turns a CIDR into a live-services inventory.
+    if args.discover:
+        try:
+            ports = _parse_ports(args.ports) if args.ports else DEFAULT_DISCOVERY_PORTS
+        except ValueError:
+            print(f"error: bad --ports value: {args.ports}", file=sys.stderr)
+            return 1
+        hosts = list(dict.fromkeys(p.host for p in profiles))
+        if not args.quiet:
+            print(f"discovering open services on {len(hosts)} host(s) × {len(ports)} port(s)...",
+                  file=sys.stderr)
+        open_pairs = discover_services(hosts, ports, timeout=args.discover_timeout,
+                                       workers=max(args.workers, 64))
+        if not open_pairs:
+            print("no open services discovered.", file=sys.stderr)
+            return 1
+        if not args.quiet:
+            print(f"discovered {len(open_pairs)} open service(s) on {len(hosts)} host(s); deep-scanning...",
+                  file=sys.stderr)
+        profiles = [AssetProfile(host=h, port=pt, starttls=args.starttls) for (h, pt) in open_pairs]
+
     def progress(profile, result):
         if args.quiet:
             return
@@ -141,11 +217,14 @@ def _cmd_scan(args) -> int:
         print(f"  scanned {profile.host}:{profile.port:<5}  {status}", file=sys.stderr)
 
     pq_groups = [g.strip() for g in args.pq_groups.split(",")] if args.pq_groups else None
-    reports, meta = build_reports(
+    reports, meta, horizons = build_reports(
         profiles, timeout=args.timeout, enumerate_versions=not args.no_enumerate,
         workers=args.workers, baseline_path=args.baseline,
         update_baseline=args.update_baseline, do_pq_probe=not args.no_pq,
-        pq_groups=pq_groups, do_chain=not args.no_chain, progress=progress)
+        pq_groups=pq_groups, do_chain=not args.no_chain, progress=progress,
+        horizon_scenario=args.horizon, crqc_year=args.crqc_year,
+        rule_paths=[p.strip() for p in args.rules.split(",")] if args.rules else None,
+        use_builtin_rules=not args.no_builtin_rules)
 
     # Write artifacts first so a console-rendering hiccup never loses them.
     _write_file = _write_text
@@ -168,7 +247,7 @@ def _cmd_scan(args) -> int:
 
     min_sev = _SEVERITY_BY_NAME.get(args.min_severity, Severity.INFO)
     print(render_console(reports, meta, color=_want_color(args.no_color),
-                         min_severity=min_sev, quiet=args.quiet))
+                         min_severity=min_sev, quiet=args.quiet, horizon_assets=horizons))
 
     # CI gate
     if args.fail_on != "none":
@@ -316,16 +395,37 @@ def _cmd_ike(args) -> int:
     return 0
 
 
+def _cmd_ssh(args) -> int:
+    result = scan_ssh(args.host, port=args.port, timeout=args.timeout)
+    meta = {"tool_version": __version__,
+            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    if args.json:
+        doc = {"tool": "qer", "tool_version": __version__, "scan_type": "ssh",
+               "meta": meta, "result": to_serializable(result)}
+        _write_text(args.json, json.dumps(doc, indent=2))
+
+    print(render_ssh_console(result, meta, color=_want_color(args.no_color)))
+
+    if args.fail_on != "none":
+        threshold = _SEVERITY_BY_NAME[args.fail_on]
+        worst = max((f.severity for f in result.findings), default=Severity.INFO)
+        if worst >= threshold:
+            print(f"\nfail-on={args.fail_on}: highest finding severity is {worst.label}", file=sys.stderr)
+            return 2
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="qer",
         description="GreyNOC Quantum Exposure Radar — cryptographic bill-of-materials scanner "
                     "and post-quantum readiness monitor.")
     p.add_argument("--version", action="version", version=f"qer {__version__}")
-    sub = p.add_subparsers(dest="command", metavar="{scan,code,passive,export,ike}")
+    sub = p.add_subparsers(dest="command", metavar="{scan,code,passive,export,ike,ssh}")
 
     s = sub.add_parser("scan", help="scan endpoints and build the CBOM / migration map")
-    s.add_argument("hosts", nargs="*", help="targets as host[:port] (default port 443)")
+    s.add_argument("hosts", nargs="*",
+                   help="targets as host[:port], CIDR (10.0.0.0/24), or range (10.0.0.5-40)")
     s.add_argument("-f", "--file", help="targets file (.json profiles or annotated text)")
     s.add_argument("-t", "--timeout", type=float, default=6.0, help="per-connection timeout seconds (default 6)")
     s.add_argument("--no-enumerate", action="store_true",
@@ -334,9 +434,26 @@ def build_parser() -> argparse.ArgumentParser:
                    help="skip the active post-quantum / hybrid key-exchange probe")
     s.add_argument("--no-chain", action="store_true",
                    help="skip full certificate-chain capture (leaf certificate only)")
+    s.add_argument("--starttls",
+                   help="force a STARTTLS dialect for all targets "
+                        "(smtp|imap|pop3|ldap|postgres|mysql|none); default: infer from port")
     s.add_argument("--pq-groups",
                    help="comma list of PQ groups to probe (default: X25519MLKEM768,X25519Kyber768Draft00)")
+    s.add_argument("--horizon", default="baseline",
+                   choices=["aggressive", "baseline", "conservative"],
+                   help="CRQC-arrival scenario for the exposure horizon (default baseline ~2035)")
+    s.add_argument("--crqc-year", type=int,
+                   help="override the CRQC arrival year for the horizon (e.g. 2032)")
+    s.add_argument("--rules",
+                   help="extra detection rule pack(s): comma list of .json/.yaml files or directories")
+    s.add_argument("--no-builtin-rules", action="store_true",
+                   help="disable the built-in rule pack (qer-builtin)")
     s.add_argument("--workers", type=int, default=16, help="concurrent scan workers (default 16)")
+    s.add_argument("--discover", action="store_true",
+                   help="connect-scan the targets across --ports first, then deep-scan only open services")
+    s.add_argument("--ports", help="discovery port list, e.g. 443,8443,587,993 (default: common TLS/STARTTLS)")
+    s.add_argument("--discover-timeout", type=float, default=2.0,
+                   help="per-port connect timeout for --discover (default 2s)")
     s.add_argument("--baseline", help="baseline JSON file for the downgrade monitor")
     s.add_argument("--update-baseline", action="store_true",
                    help="write/refresh the baseline after scanning")
@@ -397,6 +514,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit code 2 if any finding reaches this severity (CI gate)")
     ik.add_argument("--no-color", action="store_true", help="disable ANSI colour")
     ik.set_defaults(func=_cmd_ike)
+
+    sh = sub.add_parser("ssh", help="inventory an SSH server's key-exchange/host-key/cipher crypto (PQ-aware)")
+    sh.add_argument("host", help="SSH host or IP")
+    sh.add_argument("--port", type=int, default=22, help="SSH TCP port (default 22)")
+    sh.add_argument("--timeout", type=float, default=6.0, help="connection timeout seconds (default 6)")
+    sh.add_argument("--json", help="write the JSON result to this path")
+    sh.add_argument("--fail-on", default="none", choices=["none"] + list(_SEVERITY_BY_NAME),
+                    help="exit code 2 if any finding reaches this severity (CI gate)")
+    sh.add_argument("--no-color", action="store_true", help="disable ANSI colour")
+    sh.set_defaults(func=_cmd_ssh)
     return p
 
 

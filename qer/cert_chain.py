@@ -107,7 +107,8 @@ def _try_extract_certificate(hs: bytes) -> Optional[list[bytes]]:
 
 
 def fetch_certificate_chain(host: str, port: int, timeout: float = 6.0,
-                            max_bytes: int = 262144) -> list[bytes]:
+                            max_bytes: int = 262144,
+                            starttls: Optional[str] = None) -> list[bytes]:
     """Return the server's full DER certificate chain (leaf first), or [] if it
     could not be captured (e.g. a TLS 1.3-only server, or a connection error).
 
@@ -122,6 +123,16 @@ def fetch_certificate_chain(host: str, port: int, timeout: float = 6.0,
     except OSError:
         return []
     deadline = time.monotonic() + timeout
+    if starttls:
+        try:
+            from .starttls import negotiate
+            negotiate(sock, starttls, host, max(0.1, deadline - time.monotonic()))
+        except Exception:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return []
     try:
         sock.sendall(build_tls12_client_hello(host))
         hs = b""

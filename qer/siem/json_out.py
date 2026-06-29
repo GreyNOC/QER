@@ -47,6 +47,8 @@ def finding_events(reports: list[EndpointReport]) -> list[dict]:
                 "evidence": f.evidence,
                 "recommendation": f.recommendation,
                 "references": f.references,
+                "confidence": f.confidence,
+                "rule": f.rule,
             })
             events.append(event)
     return events

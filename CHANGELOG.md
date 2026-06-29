@@ -4,6 +4,54 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-06-28
+
+A major expansion of the detection engine: QER now sees crypto well beyond
+HTTPS, quantifies exposure in years, and is extensible by defenders. A
+multi-agent adversarial review of the new code found and fixed 13 real bugs
+(out of 22 raised; 9 false positives killed by verification). 220 tests.
+
+### Added
+- **SSH crypto inventory (`qer ssh`)** — a raw SSH-2.0 transport scanner
+  ([RFC 4253](https://www.rfc-editor.org/rfc/rfc4253)) that reads the server's
+  `KEXINIT` and classifies every offered key-exchange / host-key / cipher / MAC by
+  quantum risk. Detects hybrid **post-quantum key exchange** (`sntrup761x25519`,
+  `mlkem768x25519`) and whether it is *preferred* vs merely offered. Live-verified
+  against OpenSSH (GitHub) and GitLab.
+- **STARTTLS scanning** — `qer scan` transparently upgrades plaintext services to
+  TLS via their native handshake and runs the full engine (handshake, version
+  enumeration, certificate chain, **and the active PQ probe**) over them. Dialects:
+  **SMTP, IMAP, POP3, LDAP, PostgreSQL, MySQL**, inferred from the port or forced
+  with `--starttls`. Live-verified PQ-over-STARTTLS (Gmail submission enforces
+  `X25519MLKEM768`).
+- **Quantum exposure horizon** — HNDL expressed in *years* via Mosca's inequality
+  against citable CRQC-arrival scenarios (`--horizon aggressive|baseline|conservative`,
+  or `--crqc-year`). Per-endpoint *shortfall* and *start-by date*, a fleet
+  `EXPOSURE HORIZON` panel, and a `QER-HORIZON` finding in every export.
+- **Extensible rule engine (`--rules`)** — declarative detection packs (JSON; YAML
+  with PyYAML) matched by a small, eval-free DSL, producing findings with a
+  **confidence** (0–1) and **provenance**. A built-in pack ships; defenders add
+  their own. `confidence` and `rule` are now on every finding and in the feeds.
+- **Network sweep & discovery** — targets can be **CIDR** (`10.0.0.0/24`) or
+  **ranges** (`10.0.0.5-40`); `--discover` connect-scans a port set and deep-scans
+  only open TLS/STARTTLS services, with a fleet PQ-posture summary line.
+
+### Fixed
+- Target files are read as UTF-8 with BOM tolerance (`utf-8-sig`), so a
+  Windows-authored list no longer parses its first host as `﻿host`.
+- **Adversarial-review fixes (13):** SSH `gss-group14/16/18` no longer
+  misclassified as broken (the `group1` substring trap); SSH read budget starts
+  after connect. STARTTLS: SMTP `STARTTLS` detection is an exact EHLO-keyword
+  match (no hostname false positives); MySQL checks the server's `CLIENT_SSL`
+  capability and reports "SSL disabled" cleanly. PQ probe and certificate-chain
+  reads are now bounded by one absolute deadline even with STARTTLS. CIDR
+  expansion is `islice`-bounded so a `/8` can't materialize 16M strings; a
+  hostname like `fee.fed/path` is no longer mistaken for a network. Rule engine:
+  `_in` guards a non-list operand, `nonempty` treats numeric `0` as present, and
+  unknown `match` keys are reported instead of silently ignored. Horizon median
+  averages the two middle values for even-length fleets. The console no longer
+  crashes on a reachable-but-unscored endpoint.
+
 ## [0.1.3] — 2026-06-28
 
 A whole-project QA/QC pass (multi-agent audit + dynamic verification) found and
@@ -93,6 +141,7 @@ post-quantum (PQC) readiness monitor.
 - Built and hardened phase-by-phase; 15 real bugs caught and fixed by an
   adversarial multi-agent review pass.
 
+[0.2.0]: https://github.com/GreyNOC/QER/releases/tag/v0.2.0
 [0.1.3]: https://github.com/GreyNOC/QER/releases/tag/v0.1.3
 [0.1.2]: https://github.com/GreyNOC/QER/releases/tag/v0.1.2
 [0.1.1]: https://github.com/GreyNOC/QER/releases/tag/v0.1.1

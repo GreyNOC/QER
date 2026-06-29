@@ -1,0 +1,45 @@
+{
+  "id": "example-org",
+  "version": "1.0",
+  "_comment": "Example QER rule pack. Copy and edit for your own policy, then run: qer scan <host> --rules path/to/this.json  (JSON always works; .yaml/.yml works if PyYAML is installed). The 'match' DSL: boolean all/any/not over leaf conditions that test {scan:{...}} top-level facts, or assert some {primitive:{...}} / {certificate:{...}} matches. Operators are field-name suffixes: _contains _in _has _lt _gt _nonempty _exists; a bare field is equality (case-insensitive for strings).",
+  "rules": [
+    {
+      "id": "QER-ORG-ECDSA-LEAF",
+      "title": "Inventory: ECDSA leaf certificate",
+      "severity": "info",
+      "quantum_risk": "quantum-vulnerable",
+      "category": "inventory",
+      "confidence": 0.9,
+      "match": { "certificate": { "position": "leaf", "public_key_algorithm_contains": "ecdsa" } },
+      "description": "Org inventory rule: the leaf certificate uses an ECDSA public key (quantum-vulnerable; tracked for PQ migration).",
+      "recommendation": "Track CA support for PQ certificate signatures (ML-DSA / SLH-DSA)."
+    },
+    {
+      "id": "QER-ORG-RSA-LEAF",
+      "title": "Policy: RSA leaf certificate flagged for PQ planning",
+      "severity": "low",
+      "quantum_risk": "quantum-vulnerable",
+      "category": "pqc",
+      "confidence": 0.7,
+      "match": { "certificate": { "position": "leaf", "public_key_algorithm_contains": "rsa" } },
+      "description": "Organisational policy flags RSA leaf certificates so their reissuance can be scheduled when PQ CAs are available.",
+      "recommendation": "Plan ML-DSA / SLH-DSA reissuance; shorten validity to ease rotation."
+    },
+    {
+      "id": "QER-ORG-PQ-NOT-CONFIRMED",
+      "title": "Policy: hybrid PQ key exchange not confirmed on this endpoint",
+      "severity": "low",
+      "quantum_risk": "quantum-vulnerable",
+      "category": "pqc",
+      "confidence": 0.6,
+      "match": {
+        "all": [
+          { "scan": { "reachable": true } },
+          { "not": { "scan": { "pq_kex_negotiated": true } } }
+        ]
+      },
+      "description": "This endpoint was not proven to negotiate a hybrid post-quantum key-exchange group.",
+      "recommendation": "Enable a hybrid group such as X25519MLKEM768 on the server or load balancer."
+    }
+  ]
+}

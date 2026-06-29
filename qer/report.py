@@ -94,13 +94,14 @@ def _endpoint_block(r: EndpointReport, paint: _Painter, min_sev: Severity) -> li
     pr_col = _PRIORITY_STYLE.get(pr, "grey")
     dot = paint("●", pr_col)
     header_meta = paint(
-        f"[{pr}]  risk {s.risk_score:>3}  hndl {s.hndl_risk:>3}  diff {s.migration_difficulty:>3}",
-        pr_col)
+        f"[{pr}]  risk {s.risk_score:>3}  hndl {s.hndl_risk:>3}  diff {s.migration_difficulty:>3}"
+        if s else f"[{pr}]", pr_col)            # reachable but unscored -> facts only, no crash
     lines.append(f"{dot} {name}  {header_meta}")
 
     fs = "yes" if scan.forward_secret else paint("NO", "red") if scan.forward_secret is False else "?"
+    via = paint(f"  via STARTTLS({scan.starttls})", "cyan") if scan.starttls else ""
     lines.append(f"    {scan.negotiated_version}  {scan.negotiated_cipher}  "
-                 f"kex={scan.key_exchange}  fs={fs}")
+                 f"kex={scan.key_exchange}  fs={fs}{via}")
     if scan.pq_testable:
         if scan.pq_groups_supported:
             tag = "enforced" if scan.pq_preferred else "classical accepted"
@@ -124,13 +125,42 @@ def _endpoint_block(r: EndpointReport, paint: _Painter, min_sev: Severity) -> li
     shown.sort(key=lambda f: f.severity, reverse=True)
     for f in shown:
         col, tag = _SEV_STYLE[f.severity]
-        lines.append(f"      {paint(tag, col, 'bold')}  {paint(f.id, 'grey')}  {f.title}")
+        conf = paint(f"  ~{f.confidence:.0%}", "grey") if f.confidence < 1.0 else ""
+        lines.append(f"      {paint(tag, col, 'bold')}  {paint(f.id, 'grey')}  {f.title}{conf}")
     return lines
+
+
+def _horizon_panel(horizon_assets, paint: _Painter) -> list[str]:
+    """Executive 'how exposed are we, in years' panel (Mosca horizon)."""
+    from .horizon import fleet_horizon
+    out: list[str] = []
+    fleet = fleet_horizon(horizon_assets)
+    out.append(paint("QUANTUM EXPOSURE HORIZON", "bold"))
+    out.append(paint("─" * 64, "grey"))
+    out.append(paint(f"scenario: {fleet.scenario} (CRQC ~{fleet.crqc_year})   "
+                     f"{fleet.exposed}/{fleet.hndl_relevant} HNDL endpoints already exposed", "grey"))
+    exposed = sorted((h for h in horizon_assets if h.verdict == "exposed"),
+                     key=lambda h: -h.exposure_years)
+    for h in exposed:
+        col = "red" if h.exposure_years >= 7 else "yellow" if h.exposure_years >= 3 else "cyan"
+        out.append(f"  {paint('▲', col)} {h.host}:{h.port}  "
+                   + paint(f"+{h.exposure_years:g}y overhang", col, "bold")
+                   + paint(f"   shelf {h.shelf_life_years}y + migrate {h.migration_years:g}y "
+                           f"vs {h.years_to_crqc:g}y to CRQC   start-by {h.start_by_year}", "grey"))
+    if not exposed:
+        out.append(paint("  no endpoints have data outliving the quantum horizon under this scenario.", "green"))
+    elif fleet.earliest_start_by_year is not None:
+        out.append("")
+        out.append(paint(f"  earliest migration start-by date across the fleet: {fleet.earliest_start_by_year}"
+                         + (f"  (already {abs(fleet.worst_shortfall_years):g}y past for the worst asset)"
+                            if fleet.worst_shortfall_years > 0 else ""), "bold"))
+    out.append("")
+    return out
 
 
 def render_console(reports: list[EndpointReport], meta: dict | None = None,
                    color: bool = True, min_severity: Severity = Severity.INFO,
-                   quiet: bool = False) -> str:
+                   quiet: bool = False, horizon_assets=None) -> str:
     paint = _Painter(color)
     meta = meta or {}
     out: list[str] = []
@@ -175,6 +205,10 @@ def render_console(reports: list[EndpointReport], meta: dict | None = None,
                     f"hndl {x['hndl_risk']:>3}   diff {x['migration_difficulty']:>3}{tag}", "grey"))
         out.append("")
 
+    # Quantum exposure horizon (Mosca) — years of overhang, the executive metric.
+    if horizon_assets:
+        out.extend(_horizon_panel(horizon_assets, paint))
+
     # Summary counts
     sev_counts: dict[Severity, int] = {}
     for r in reports:
@@ -183,6 +217,17 @@ def render_console(reports: list[EndpointReport], meta: dict | None = None,
     summary = "  ".join(
         f"{_SEV_STYLE[s][1].strip()}:{sev_counts.get(s, 0)}"
         for s in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO))
+
+    # Fleet PQ posture — most useful for a sweep of many endpoints.
+    if len(reports) > 1:
+        reachable = sum(1 for r in reports if r.scan.reachable)
+        pq_capable = sum(1 for r in reports if r.scan.pq_groups_supported)
+        pq_enforce = sum(1 for r in reports if r.scan.pq_preferred)
+        exposed = sum(1 for h in (horizon_assets or []) if getattr(h, "verdict", "") == "exposed")
+        pct = round(100 * pq_capable / reachable) if reachable else 0
+        out.append(paint("Fleet     ", "bold")
+                   + paint(f"{reachable} reachable   {pq_capable} PQ-capable ({pct}%)   "
+                           f"{pq_enforce} PQ-enforced   {exposed} HNDL-exposed", "grey"))
     out.append(paint("Findings  ", "bold") + summary)
     return "\n".join(out)
 
@@ -268,6 +313,78 @@ def render_ike_console(result, meta: dict | None = None, color: bool = True) -> 
             scol, tag = _SEV_STYLE[f.severity]
             out.append(f"    {paint(tag, scol, 'bold')}  {paint(f.id, 'grey')}  {f.title}")
     return "\n".join(out)
+
+
+_SSH_RISK_COLOR = {"broken-now": "red", "quantum-vulnerable": "yellow",
+                   "quantum-weakened": "yellow", "pq-safe": "green"}
+
+
+def render_ssh_console(result, meta: dict | None = None, color: bool = True) -> str:
+    paint = _Painter(color)
+    meta = meta or {}
+    out: list[str] = []
+    title = paint("GreyNOC Quantum Exposure Radar — SSH scan", "bold", "magenta")
+    out.append(f"{title}  {paint('v' + str(meta.get('tool_version', '')), 'grey')}")
+    out.append(paint(f"{result.host}:{result.port}/tcp", "bold")
+               + (f"   {paint(result.software or result.banner or '', 'grey')}"))
+    out.append("")
+    if not result.reachable:
+        out.append(f"  {paint('no SSH response', 'grey')}  {result.error or ''}")
+        return "\n".join(out)
+
+    # PQ verdict banner
+    if result.pq_kex_preferred:
+        out.append("  " + paint(f"● post-quantum key exchange PREFERRED ({result.preferred_kex})", "green", "bold"))
+    elif result.pq_kex_offered:
+        out.append("  " + paint(f"● post-quantum key exchange offered but not preferred "
+                                 f"(prefers {result.preferred_kex})", "yellow", "bold"))
+    else:
+        out.append("  " + paint(f"● no post-quantum key exchange (prefers {result.preferred_kex})", "red", "bold"))
+    out.append("")
+
+    rows = (("key exchange", result.kex_algorithms, _classify_kex_risk),
+            ("host keys", result.host_key_algorithms, _classify_hostkey_risk),
+            ("ciphers", result.ciphers, _classify_cipher_risk),
+            ("MACs", result.macs, _classify_mac_risk))
+    out.append(paint("  Offered algorithms (preference order)", "bold"))
+    for label, items, riskfn in rows:
+        if not items:
+            continue
+        out.append(f"    {paint(label + ':', 'bold')}")
+        for name in items:
+            rl = riskfn(name)
+            mark = paint(rl, _SSH_RISK_COLOR.get(rl, "grey")) if rl else paint("signalling", "grey")
+            out.append(f"      {name:42} {mark}")
+    out.append("")
+
+    if result.findings:
+        out.append(paint("  Findings", "bold"))
+        for f in sorted(result.findings, key=lambda x: -int(x.severity)):
+            scol, tag = _SEV_STYLE[f.severity]
+            out.append(f"    {paint(tag, scol, 'bold')}  {paint(f.id, 'grey')}  {f.title}")
+    return "\n".join(out)
+
+
+# Small risk-label helpers for the SSH renderer (kept here so report.py stays the
+# single place that knows how to colour a scan; sshscan.py owns the logic).
+def _classify_kex_risk(name: str) -> str:
+    from .sshscan import _is_real_kex, classify_kex
+    return classify_kex(name)[0].label if _is_real_kex(name) else ""
+
+
+def _classify_hostkey_risk(name: str) -> str:
+    from .sshscan import classify_hostkey
+    return classify_hostkey(name)[0].label
+
+
+def _classify_cipher_risk(name: str) -> str:
+    from .sshscan import classify_cipher
+    return classify_cipher(name)[0].label
+
+
+def _classify_mac_risk(name: str) -> str:
+    from .sshscan import classify_mac
+    return classify_mac(name)[0].label
 
 
 _CATEGORY_TITLES = {

@@ -203,20 +203,44 @@ def _alert_means_unsupported(payload: bytes) -> Optional[bool]:
     return False if desc in _REJECT_ALERTS else None
 
 
-def probe_group(host: str, port: int, group_name: str, timeout: float = 6.0) -> Optional[bool]:
-    """Probe a single group. True=supported, False=not supported, None=error."""
-    group = PQ_GROUPS.get(group_name)
-    if group is None:
-        return None
+def _open(host: str, port: int, timeout: float, starttls: Optional[str],
+          deadline: Optional[float] = None):
+    """Connect and (optionally) run STARTTLS; return a socket positioned for a
+    raw ClientHello, or None on any failure. STARTTLS is bounded by ``deadline``
+    so the whole probe stays within one ``timeout`` budget."""
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.settimeout(timeout)
     except OSError:
         return None
+    if starttls:
+        try:
+            from .starttls import negotiate
+            budget = max(0.1, deadline - time.monotonic()) if deadline else timeout
+            negotiate(sock, starttls, host, budget)
+        except Exception:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return None
+    return sock
+
+
+def probe_group(host: str, port: int, group_name: str, timeout: float = 6.0,
+                starttls: Optional[str] = None) -> Optional[bool]:
+    """Probe a single group. True=supported, False=not supported, None=error."""
+    group = PQ_GROUPS.get(group_name)
+    if group is None:
+        return None
+    deadline = time.monotonic() + timeout
+    sock = _open(host, port, timeout, starttls, deadline)
+    if sock is None:
+        return None
     try:
         sock.sendall(build_client_hello(host, [group]))
         for _ in range(4):                             # skip change_cipher_spec etc.
-            rec = _read_record(sock)
+            rec = _read_record(sock, deadline)
             if rec is None:
                 return None
             ctype, payload = rec
@@ -252,7 +276,7 @@ def _interpret_preference(is_hrr: bool, selected_group: Optional[int],
 
 
 def probe_preference(host: str, port: int, group_name: str,
-                     timeout: float = 6.0) -> Optional[str]:
+                     timeout: float = 6.0, starttls: Optional[str] = None) -> Optional[str]:
     """Does the server *enforce* a hybrid group, or merely tolerate it?
 
     We offer ``[group, x25519]`` and provide a key_share **for x25519 only**,
@@ -270,15 +294,14 @@ def probe_preference(host: str, port: int, group_name: str,
     share = _x25519_key_share()
     if group is None or share is None:
         return None
-    try:
-        sock = socket.create_connection((host, port), timeout=timeout)
-        sock.settimeout(timeout)
-    except OSError:
+    deadline = time.monotonic() + timeout
+    sock = _open(host, port, timeout, starttls, deadline)
+    if sock is None:
         return None
     try:
         sock.sendall(build_client_hello(host, [group, X25519_GROUP], {X25519_GROUP: share}))
         for _ in range(4):
-            rec = _read_record(sock)
+            rec = _read_record(sock, deadline)
             if rec is None:
                 return None
             ctype, payload = rec
@@ -300,7 +323,8 @@ def probe_preference(host: str, port: int, group_name: str,
 
 
 def probe_pq(host: str, port: int, timeout: float = 6.0,
-             groups: Optional[list[str]] = None, check_preference: bool = True) -> dict:
+             groups: Optional[list[str]] = None, check_preference: bool = True,
+             starttls: Optional[str] = None) -> dict:
     """Probe a set of PQ groups. Returns a result dict with the supported list,
     and (if any are supported and ``check_preference``) whether the server
     enforces PQ for the first supported group."""
@@ -308,7 +332,7 @@ def probe_pq(host: str, port: int, timeout: float = 6.0,
     supported: list[str] = []
     errored = 0
     for name in groups:
-        result = probe_group(host, port, name, timeout)
+        result = probe_group(host, port, name, timeout, starttls=starttls)
         if result is True:
             supported.append(name)
         elif result is None:
@@ -317,7 +341,7 @@ def probe_pq(host: str, port: int, timeout: float = 6.0,
     preference = None
     pq_preferred = None
     if supported and check_preference:
-        preference = probe_preference(host, port, supported[0], timeout)
+        preference = probe_preference(host, port, supported[0], timeout, starttls=starttls)
         if preference == "enforce":
             pq_preferred = True
         elif preference == "tolerate":

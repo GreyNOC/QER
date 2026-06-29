@@ -45,6 +45,7 @@ _PQ_TOKENS = (
     "slhdsa", "slh-dsa", "sphincs",      # hash-based signatures (FIPS 205)
     "fndsa", "fn-dsa", "falcon",         # signatures (FIPS 206, draft)
     "frodo", "bike", "hqc", "mceliece",  # alt KEMs
+    "sntrup", "ntruprime", "ntrulpr",    # (Streamlined) NTRU Prime (OpenSSH SSH KEX)
 )
 
 # Named hybrid groups worth recognising explicitly (TLS key_share groups).

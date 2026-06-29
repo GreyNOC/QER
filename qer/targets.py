@@ -14,12 +14,24 @@ Unannotated lines just use the defaults in :class:`qer.models.AssetProfile`.
 
 from __future__ import annotations
 
+import dataclasses
+import ipaddress
+import itertools
 import json
+import re
 import shlex
 import socket
+import sys
 from typing import Iterable
 
 from .models import AssetProfile, Exposure
+
+# Upper bound on how many hosts a single CIDR/range token may expand to, so a
+# fat-fingered /8 can't silently launch a 16-million-host sweep. The cap is
+# always announced on stderr (never silent).
+MAX_SWEEP_HOSTS = 4096
+
+_RANGE_RE = re.compile(r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)(\d{1,3})-(\d{1,3})$")
 
 _TRUE = {"1", "true", "yes", "y", "on"}
 _KEY_ALIASES = {
@@ -37,6 +49,22 @@ def split_host_port(token: str, default_port: int = 443) -> tuple[str, int]:
     for scheme in ("https://", "http://", "tls://"):
         if token.lower().startswith(scheme):
             token = token[len(scheme):]
+    # CIDR (10.0.0.0/24) or last-octet range (10.0.0.5-40), optionally :port —
+    # handled before the path-strip below, which would eat the "/prefix". A "/foo"
+    # token is only treated as CIDR if it actually parses as a network, so a real
+    # hostname like "fee.fed/path" still falls through to normal path-stripping.
+    if "/" in token or "-" in token:
+        core, sep, tail = token.rpartition(":")
+        has_port = bool(sep) and tail.isdigit()
+        cand = core if has_port else token
+        if "/" in cand:
+            try:
+                ipaddress.ip_network(cand, strict=False)
+                return cand, (int(tail) if has_port else default_port)
+            except ValueError:
+                pass
+        elif _RANGE_RE.match(cand):
+            return cand, (int(tail) if has_port else default_port)
     token = token.split("/", 1)[0]            # drop any path
     if token.startswith("["):                 # [ipv6]:port
         host, _, rest = token[1:].partition("]")
@@ -53,6 +81,38 @@ def split_host_port(token: str, default_port: int = 443) -> tuple[str, int]:
         if tail.isdigit():
             return head, int(tail)
     return token, default_port
+
+
+def _cap(ips: list[str], token: str) -> list[str]:
+    if len(ips) > MAX_SWEEP_HOSTS:
+        print(f"note: '{token}' expands to {len(ips)} hosts; capped to {MAX_SWEEP_HOSTS} "
+              f"(narrow the range or raise MAX_SWEEP_HOSTS).", file=sys.stderr)
+        return ips[:MAX_SWEEP_HOSTS]
+    return ips
+
+
+def expand_host_token(host: str) -> list[str]:
+    """Expand a CIDR (``10.0.0.0/24``) or last-octet range (``10.0.0.5-40``) into
+    individual host strings. Anything else passes through unchanged (a single
+    hostname/IP). CIDR network/broadcast addresses are excluded for IPv4 blocks
+    wider than /31."""
+    if "/" in host:
+        try:
+            net = ipaddress.ip_network(host, strict=False)
+        except ValueError:
+            return [host]                      # not a real network -> treat literally
+        wide = net.prefixlen < (31 if net.version == 4 else 127)
+        hosts_iter = net.hosts() if wide else iter(net)
+        # islice the iterator so a fat /8 never materializes 16M strings before
+        # the cap can trim it — take MAX+1 to detect (and announce) the overflow.
+        ips = [str(ip) for ip in itertools.islice(hosts_iter, MAX_SWEEP_HOSTS + 1)]
+        return _cap(ips, host)
+    m = _RANGE_RE.match(host)
+    if m:
+        base, lo, hi = m.group(1), int(m.group(2)), int(m.group(3))
+        if lo <= hi and hi <= 255:
+            return _cap([f"{base}{i}" for i in range(lo, hi + 1)], host)
+    return [host]
 
 
 def _coerce(profile_kwargs: dict) -> dict:
@@ -95,7 +155,9 @@ def parse_target_line(line: str) -> AssetProfile | None:
 
 
 def load_targets(path: str) -> list[AssetProfile]:
-    with open(path, "r", encoding="utf-8") as fh:
+    # utf-8-sig transparently strips a leading BOM (common in Windows-authored
+    # target files) so the first host isn't parsed as "﻿host".
+    with open(path, "r", encoding="utf-8-sig") as fh:
         raw = fh.read()
     if path.lower().endswith(".json"):
         data = json.loads(raw)
@@ -105,8 +167,14 @@ def load_targets(path: str) -> list[AssetProfile]:
     profiles = []
     for line in raw.splitlines():
         p = parse_target_line(line)
-        if p:
+        if not p:
+            continue
+        # A CIDR/range line applies its annotations to every expanded host.
+        expanded = expand_host_token(p.host)
+        if len(expanded) == 1 and expanded[0] == p.host:
             profiles.append(p)
+        else:
+            profiles.extend(dataclasses.replace(p, host=ip) for ip in expanded)
     return profiles
 
 
@@ -114,5 +182,6 @@ def profiles_from_args(hosts: Iterable[str], default_port: int = 443) -> list[As
     out = []
     for h in hosts:
         host, port = split_host_port(h, default_port)
-        out.append(AssetProfile(host=host, port=port))
+        for ip in expand_host_token(host):
+            out.append(AssetProfile(host=ip, port=port))
     return out

@@ -152,6 +152,7 @@ class ScanResult:
     pq_testable: bool = False
     pq_groups_supported: list[str] = field(default_factory=list)
     pq_preferred: Optional[bool] = None
+    starttls: Optional[str] = None              # STARTTLS dialect used to reach TLS, if any
     openssl_version: str = ""
     scanned_at: Optional[str] = None
 
@@ -174,6 +175,8 @@ class AssetProfile:
     exposure: Exposure = Exposure.EXTERNAL
     crypto_agility: int = 3         # 1..5  — 5 = trivially swappable, 1 = hardcoded/embedded
     expect_pq: bool = False         # endpoint is *supposed* to negotiate hybrid/PQ key exchange
+    starttls: Optional[str] = None  # opportunistic-TLS dialect (smtp/imap/pop3/ldap/postgres/mysql);
+                                    # None = infer from port, "none" = force direct TLS
     notes: str = ""
 
     @property
@@ -196,6 +199,8 @@ class Finding:
     recommendation: str = ""
     references: list[str] = field(default_factory=list)
     location: str = ""              # for code findings: "path/to/file:line"
+    confidence: float = 1.0         # 0..1 — 1.0 = directly observed; <1 = heuristic/rule-derived
+    rule: str = ""                  # id of the rule pack/rule that produced this (provenance)
 
 
 @dataclass
@@ -272,7 +277,8 @@ def scan_result_from_dict(d: dict) -> ScanResult:
         certificates=[cert_info_from_dict(x) for x in d.get("certificates", [])],
         pq_kex_negotiated=d.get("pq_kex_negotiated"), pq_testable=bool(d.get("pq_testable", False)),
         pq_groups_supported=list(d.get("pq_groups_supported", [])),
-        pq_preferred=d.get("pq_preferred"), openssl_version=d.get("openssl_version", ""),
+        pq_preferred=d.get("pq_preferred"), starttls=d.get("starttls"),
+        openssl_version=d.get("openssl_version", ""),
         scanned_at=d.get("scanned_at"))
 
 
@@ -282,7 +288,8 @@ def asset_profile_from_dict(d: dict) -> AssetProfile:
         sensitivity=int(d.get("sensitivity", 3)), shelf_life_years=int(d.get("shelf_life_years", 5)),
         exposure=Exposure.parse(d.get("exposure", Exposure.EXTERNAL)),
         crypto_agility=int(d.get("crypto_agility", 3)),
-        expect_pq=bool(d.get("expect_pq", False)), notes=d.get("notes", ""))
+        expect_pq=bool(d.get("expect_pq", False)), starttls=d.get("starttls"),
+        notes=d.get("notes", ""))
 
 
 def finding_from_dict(d: dict) -> Finding:
@@ -293,7 +300,8 @@ def finding_from_dict(d: dict) -> Finding:
         category=d.get("category", ""), host=d.get("host", ""), port=int(d.get("port", 0)),
         description=d.get("description", ""), evidence=d.get("evidence", ""),
         recommendation=d.get("recommendation", ""), references=list(d.get("references", [])),
-        location=d.get("location", ""))
+        location=d.get("location", ""),
+        confidence=float(d.get("confidence", 1.0)), rule=d.get("rule", ""))
 
 
 def scores_from_dict(d: Optional[dict]) -> Optional[Scores]:

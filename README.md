@@ -12,10 +12,11 @@ scores post‑quantum (PQC) migration readiness, flags **harvest‑now‑decrypt
 (HNDL)** exposure, watches for **hybrid/PQ downgrades**, and emits ready‑to‑load
 **SIEM** detection content and an **executive migration map**.
 
-This repository is the **v0.1 MVP**: the *Network/TLS radar* vertical slice. It
-performs real TLS handshakes, parses real certificates, and produces real
-findings. See [Scope & honesty](#scope--honesty) for exactly what is and isn't
-implemented yet, and [Roadmap](#roadmap) for the rest of the vision.
+It performs real handshakes, parses real certificates, and produces real
+findings — now across **TLS, STARTTLS-wrapped services (mail/LDAP/databases),
+and SSH**, with quantum exposure quantified in *years* and an extensible rule
+engine. See [Scope & honesty](#scope--honesty) for exactly what is and isn't
+implemented, and [Roadmap](#roadmap) for the rest of the vision.
 
 ---
 
@@ -93,6 +94,21 @@ qer --version
 # Scan a couple of hosts
 qer scan github.com cloudflare.com:443
 
+# Sweep a whole network: discover live TLS/STARTTLS services, then deep-scan them
+qer scan 10.0.0.0/24 --discover --ports 443,8443,587,993
+
+# Mail / database TLS via STARTTLS (auto-detected from the port)
+qer scan smtp.example.com:587 imap.example.com:143 db.example.com:5432
+
+# Inventory an SSH server's PQ posture (detects sntrup761 / mlkem768 hybrid KEX)
+qer ssh github.com
+
+# Quantify exposure in YEARS (Mosca horizon) under an early-CRQC scenario
+qer scan -f data/targets.example.txt --horizon aggressive
+
+# Add your own detection policy with a rule pack (JSON; YAML if PyYAML present)
+qer scan example.com --rules rules/example-rules.json
+
 # Scan a target list with business context, diff against a baseline,
 # and emit every SIEM format into ./out
 qer scan -f data/targets.example.txt \
@@ -122,7 +138,7 @@ qer ike vpn.example.com --json out/ike.json
 Example console output:
 
 ```
-GreyNOC Quantum Exposure Radar  v0.1.3
+GreyNOC Quantum Exposure Radar  v0.2.0
 Scanned 3 endpoint(s), 3 reachable  |  OpenSSL 3.0.13
 
 CRYPTOGRAPHIC BILL OF MATERIALS
@@ -221,6 +237,86 @@ The emitted Zeek script ([`qer export ... zeek`](qer/siem/zeek.py)) adds a
 `qer_pq` column to `ssl.log`, so the sensor that flags weak TLS in real time also
 produces the data `qer passive` consumes.
 
+## SSH crypto inventory (`qer ssh`)
+
+SSH is one of the largest, least-inventoried HNDL surfaces in any estate — admin
+sessions, git, and tunneled databases, almost all key-exchanged with classical
+(EC)DH. `qer ssh` speaks just enough of the SSH-2.0 transport ([RFC 4253](https://www.rfc-editor.org/rfc/rfc4253))
+to read the server's `KEXINIT` — the preference-ordered name-lists of every
+key-exchange, host-key, cipher and MAC it offers — without authenticating or
+completing a handshake. Because the lists are in preference order, QER reports
+not just whether a **hybrid PQ key exchange** is *offered* but whether it is
+*preferred* (the SSH analogue of TLS enforce-vs-tolerate). Modern OpenSSH (≥ 9.0)
+prefers `sntrup761x25519-sha512@openssh.com`; 9.9+ adds `mlkem768x25519-sha256`.
+
+```bash
+qer ssh github.com          # → "post-quantum key exchange PREFERRED (sntrup761x25519-sha512)"
+qer ssh ssh.example.com --json out/ssh.json
+```
+
+## Beyond HTTPS: STARTTLS (`qer scan`)
+
+A huge share of an organisation's TLS — and quantum exposure — is not on port
+443. `qer scan` transparently upgrades plaintext services to TLS via their
+native STARTTLS handshake, then runs the *full* QER engine over it (handshake,
+version enumeration, certificate chain, **and the active PQ probe**). The dialect
+is inferred from the port (override with `--starttls`):
+
+| Service | Ports | Service | Ports |
+|---------|-------|---------|-------|
+| SMTP | 25, 587, 2525 | LDAP | 389, 3268 |
+| IMAP | 143 | PostgreSQL | 5432 |
+| POP3 | 110 | MySQL | 3306 |
+
+```bash
+qer scan smtp.example.com:587      # auto-STARTTLS, then "is my mail server PQ-ready?"
+qer scan db:5432 --starttls postgres
+```
+
+## Quantum exposure horizon (Mosca, in years)
+
+A 0–100 HNDL score says *which* endpoints to fix first; the horizon says *how
+exposed you already are*, in years. It makes [Mosca's inequality](https://eprint.iacr.org/2015/1075)
+concrete — `shelf-life + migration-time > years-to-CRQC` — against a named,
+citable CRQC-arrival scenario (`aggressive` ~2030 / `baseline` ~2035 /
+`conservative` ~2040, or `--crqc-year`). Each exposed endpoint gets a **shortfall
+in years** and a **start-by date**; the fleet gets an `EXPOSURE HORIZON` panel
+and a `QER-HORIZON` finding that flows into every SIEM/CBOM export.
+
+```
+QUANTUM EXPOSURE HORIZON
+scenario: aggressive (CRQC ~2030)   2/2 HNDL endpoints already exposed
+  ▲ github.com:443  +16y overhang   shelf 15y + migrate 5y vs 4y to CRQC   start-by 2010
+```
+
+## Extensible detection rules (`--rules`)
+
+Beyond the built-in findings, QER runs a small, eval-free **rule engine** over a
+normalized view of each scan. Defenders encode their own policy in declarative
+**rule packs** (JSON always; YAML if PyYAML is installed) — no Python — and every
+rule-derived finding carries a **confidence** (0–1) and **provenance**
+(`pack/rule` id). The match DSL is boolean `all`/`any`/`not` over leaf conditions
+that test `scan` facts or assert some `primitive`/`certificate` matches; operators
+are field-name suffixes (`algorithm_contains`, `bits_lt`, `supported_versions_has`…).
+See [`rules/example-rules.json`](rules/example-rules.json).
+
+```bash
+qer scan example.com --rules rules/example-rules.json          # add a pack
+qer scan example.com --no-builtin-rules --rules my-policy/     # only your packs
+```
+
+## Network sweep & discovery
+
+Targets can be single hosts, **CIDR blocks** (`10.0.0.0/24`), or **ranges**
+(`10.0.0.5-40`). With `--discover`, QER first runs a fast concurrent TCP
+connect-scan across a port set and then deep-scans only the *open* TLS/STARTTLS
+services — turning a subnet into a fleet-level PQ-posture inventory in one run.
+
+```bash
+qer scan 10.0.0.0/24 --discover --ports 443,8443,587,993,5432
+# → Fleet  37 reachable   29 PQ-capable (78%)   12 PQ-enforced   8 HNDL-exposed
+```
+
 ## Code & dependency scan (`qer code`)
 
 The offline companion to the network radar. It walks a repo and inventories
@@ -285,19 +381,23 @@ exposure=external, agility=3`).
 qer/
   models.py      dataclasses + JSON serialization (the shared data model)
   classify.py    crypto knowledge base — names → quantum-risk (pure logic)
-  scanner.py     active TLS handshakes + certificate parsing
+  scanner.py     active TLS handshakes + certificate parsing + CIDR discovery sweep
   pqprobe.py     raw TLS 1.3 probe: hybrid/PQ support + enforcement (preference) probe
   cert_chain.py  raw TLS 1.2 probe: full certificate-chain (PKI CBOM) capture
+  starttls.py    opportunistic-TLS negotiation (smtp/imap/pop3/ldap/postgres/mysql)
+  sshscan.py     raw SSH-2.0 KEXINIT inventory + PQ-KEX detection (`qer ssh`)
   ikescan.py     raw IKEv2 IKE_SA_INIT probe: VPN/IPsec crypto inventory (`qer ike`)
   passive.py     measured PQ coverage from a Zeek ssl.log (`qer passive`)
   scoring.py     HNDL / risk / readiness scores + finding generation
+  horizon.py     Mosca exposure horizon — HNDL expressed in years (CRQC scenarios)
+  rules.py       declarative rule engine + confidence (extensible detection packs)
   downgrade.py   baseline snapshot + regression diffing
   codescan.py    offline code & dependency crypto scanner (`qer code`)
-  report.py      console reports + executive migration map
-  targets.py     load AssetProfiles from file / CLI
-  cli.py         argparse entrypoint (`qer scan` / `code` / `passive` / `export` / `ike`)
+  report.py      console reports + executive migration map + exposure-horizon panel
+  targets.py     load AssetProfiles from file / CLI; CIDR + range expansion
+  cli.py         argparse entrypoint (`qer scan` / `ssh` / `code` / `passive` / `export` / `ike`)
   siem/          json/ndjson + cyclonedx (CBOM) + stix + html dashboard + sigma/splunk/kql/zeek
-tests/           142 offline unit tests for the pure logic
+tests/           220 offline unit tests for the pure logic
 ```
 
 Run the tests:
@@ -326,6 +426,15 @@ QER is deliberately honest about its limits rather than overclaiming:
   every link (leaf + intermediate CAs), since stdlib `ssl` exposes only the leaf on
   3.11. TLS 1.3-only servers encrypt that message, so QER falls back to the stdlib
   leaf there (use `--no-chain` to skip chain capture entirely).
+* **SSH and STARTTLS scanning are live‑verified.** `qer ssh` reads the server's
+  real `KEXINIT` (verified against OpenSSH/GitLab — `sntrup761x25519` and
+  `mlkem768x25519` detected correctly); STARTTLS PQ probing is verified against
+  live SMTP/IMAP (e.g. Gmail submission *enforces* `X25519MLKEM768`). The SSH
+  scan reads the server's *offer*, not what a specific client negotiates.
+* **The exposure horizon is a planning model, not a prediction.** It computes
+  Mosca's inequality against an explicit, citable CRQC‑arrival *scenario*; the
+  scenario (and any `--crqc-year`) is shown on every output so no single guess is
+  smuggled in as fact.
 * **The code scanner is heuristic** (regex over text). Like grep‑based SAST it
   matches crypto terms in comments and string literals; it is an inventory aid,
   not proof of exploitable usage.
@@ -356,6 +465,11 @@ dependency scanner. Still ahead:
 - [x] **`qer export`** — re‑emit any format from a saved JSON report, no re-scan.
 - [x] **Web "radar" dashboard** — self-contained offline HTML ([html_report.py](qer/siem/html_report.py)).
 - [x] **STIX 2.1 / TAXII** output — exposures as a shareable STIX bundle ([stix.py](qer/siem/stix.py)).
+- [x] **SSH crypto inventory** — raw SSH-2.0 KEXINIT, PQ-KEX-aware (`qer ssh`, [sshscan.py](qer/sshscan.py)).
+- [x] **STARTTLS** — PQ/TLS scanning over SMTP/IMAP/POP3/LDAP/PostgreSQL/MySQL ([starttls.py](qer/starttls.py)).
+- [x] **Quantum exposure horizon** — HNDL expressed in *years* via Mosca's inequality ([horizon.py](qer/horizon.py)).
+- [x] **Extensible rule engine** — declarative detection packs + confidence scoring ([rules.py](qer/rules.py)).
+- [x] **CIDR sweep + discovery** — inventory a whole network's PQ posture in one run.
 
 ---
 
