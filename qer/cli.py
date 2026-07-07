@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import json
 import os
@@ -208,7 +209,22 @@ def _cmd_scan(args) -> int:
         if not args.quiet:
             print(f"discovered {len(open_pairs)} open service(s) on {len(hosts)} host(s); deep-scanning...",
                   file=sys.stderr)
-        profiles = [AssetProfile(host=h, port=pt, starttls=args.starttls) for (h, pt) in open_pairs]
+        # Carry the business context (sensitivity, shelf_life, exposure, ...) from
+        # the seed targets onto each discovered service: prefer an exact host:port
+        # profile, else fall back to a same-host profile (e.g. annotations that sat
+        # on a CIDR/host line), else a bare default profile.
+        by_hostport = {(p.host, p.port): p for p in profiles}
+        by_host = {p.host: p for p in profiles}
+        discovered = []
+        for (h, pt) in open_pairs:
+            seed = by_hostport.get((h, pt)) or by_host.get(h)
+            if seed is not None:
+                discovered.append(dataclasses.replace(
+                    seed, host=h, port=pt,
+                    starttls=args.starttls or seed.starttls))
+            else:
+                discovered.append(AssetProfile(host=h, port=pt, starttls=args.starttls))
+        profiles = discovered
 
     def progress(profile, result):
         if args.quiet:
@@ -216,7 +232,21 @@ def _cmd_scan(args) -> int:
         status = result.negotiated_version or (result.error or "unreachable")
         print(f"  scanned {profile.host}:{profile.port:<5}  {status}", file=sys.stderr)
 
-    pq_groups = [g.strip() for g in args.pq_groups.split(",")] if args.pq_groups else None
+    pq_groups = None
+    if args.pq_groups:
+        from .pqprobe import PQ_GROUPS
+        canon = {g.lower(): g for g in PQ_GROUPS}
+        pq_groups, unknown = [], []
+        for raw in args.pq_groups.split(","):
+            name = raw.strip()
+            if not name:
+                continue
+            match = canon.get(name.lower())
+            (pq_groups if match else unknown).append(match or name)
+        if unknown:
+            print(f"error: unknown --pq-groups value(s): {', '.join(unknown)}. "
+                  f"Known groups: {', '.join(PQ_GROUPS)}.", file=sys.stderr)
+            return 1
     reports, meta, horizons = build_reports(
         profiles, timeout=args.timeout, enumerate_versions=not args.no_enumerate,
         workers=args.workers, baseline_path=args.baseline,

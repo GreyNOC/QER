@@ -48,7 +48,11 @@ PQ_GROUPS: dict[str, int] = {
     "SecP384r1MLKEM1024": 0x11ED,
     "X25519Kyber768Draft00": 0x6399,   # pre-standard draft, still seen in the wild
 }
-DEFAULT_PROBE_GROUPS = ["X25519MLKEM768", "X25519Kyber768Draft00"]
+DEFAULT_PROBE_GROUPS = [
+    "X25519MLKEM768",         # the standardised hybrid the major CDNs negotiate
+    "SecP256r1MLKEM768",      # CNSA/enterprise-leaning stacks enable only the P-256 hybrid
+    "X25519Kyber768Draft00",  # pre-standard draft, still seen in the wild
+]
 
 # A HelloRetryRequest is a ServerHello carrying this magic value in `random`
 # (RFC 8446 §4.1.3: SHA-256 of "HelloRetryRequest").
@@ -347,11 +351,16 @@ def probe_pq(host: str, port: int, timeout: float = 6.0,
         elif preference == "tolerate":
             pq_preferred = False
 
+    # If every probe errored (all groups unknown/typo'd, or the network RST/timed
+    # out each raw connection) we have *no* evidence either way — don't report a
+    # confident "no PQ support", which would let downgrade.py raise a false
+    # CRITICAL PQ-downgrade alert against a baseline that saw PQ.
+    testable = bool(supported) or errored < len(groups)
     return {
-        "testable": True,
+        "testable": testable,
         "tested_groups": groups,
         "supported_groups": supported,
-        "pq_supported": bool(supported),
+        "pq_supported": bool(supported) if testable else None,
         "preference": preference,
         "pq_preferred": pq_preferred,
         "openssl": ssl.OPENSSL_VERSION,

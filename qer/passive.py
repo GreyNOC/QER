@@ -61,11 +61,36 @@ class PassiveReport:
     scanned_at: str = ""
 
 
+# Zeek versions predating the PQ group-name tables log a negotiated hybrid group
+# by its raw codepoint as "unknown-NNNN" (decimal). Translate the known hybrid
+# codepoints so a fully-PQ service is not mis-measured as 0% PQ / all-HNDL.
+# Decimal codepoints per the IANA TLS Supported Groups registry.
+_ZEEK_UNKNOWN_GROUPS = {
+    4587: "SecP256r1MLKEM768",
+    4588: "X25519MLKEM768",
+    4589: "SecP384r1MLKEM1024",
+    25497: "X25519Kyber768Draft00",
+    25498: "SecP256r1Kyber768Draft00",
+}
+
+
+def _resolve_curve(curve: str) -> str:
+    """Map Zeek's raw ``unknown-NNNN`` group encoding to a known group name."""
+    c = curve.strip()
+    low = c.lower()
+    if low.startswith("unknown-") or low.startswith("unknown_"):
+        try:
+            return _ZEEK_UNKNOWN_GROUPS.get(int(c.split("-")[-1].split("_")[-1]), c)
+        except ValueError:
+            return c
+    return c
+
+
 def classify_curve(curve: str) -> str:
     """Return 'pq', 'classical', or 'none' for a negotiated group name."""
     if not curve or curve.strip().lower() in _UNSET:
         return "none"
-    return "pq" if is_pq_algorithm(curve) else "classical"
+    return "pq" if is_pq_algorithm(_resolve_curve(curve)) else "classical"
 
 
 def record_pq_kind(rec: dict) -> str:

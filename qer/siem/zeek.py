@@ -46,9 +46,12 @@ export {
     } &redef;
 
     ## Post-quantum / hybrid key-exchange groups Zeek may report in $curve.
+    ## Older Zeek builds without the PQ group-name table log these by raw
+    ## codepoint as "unknown-NNNN", so both spellings are recognised.
     const pq_groups: set[string] = {
         "X25519MLKEM768", "X25519Kyber768Draft00",
-        "SecP256r1MLKEM768", "SecP384r1MLKEM1024",
+        "SecP256r1MLKEM768", "SecP384r1MLKEM1024", "SecP256r1Kyber768Draft00",
+        "unknown-4588", "unknown-25497", "unknown-4587", "unknown-4589", "unknown-25498",
     } &redef;
 }
 
@@ -63,7 +66,10 @@ function cipher_is_broken(cipher: string): bool {
 }
 
 function cipher_has_fs(cipher: string): bool {
-    return /ECDHE|DHE/ in cipher;
+    # TLS 1.3 suites (TLS_AES_*/TLS_CHACHA20_*) carry no (EC)DHE token but are
+    # always ephemeral and forward-secret, so match them explicitly to avoid a
+    # No_Forward_Secrecy notice on every TLS 1.3 connection.
+    return /ECDHE|DHE/ in cipher || /^TLS_AES_|^TLS_CHACHA20_/ in cipher;
 }
 
 event ssl_established(c: connection) {

@@ -45,7 +45,10 @@ class QuantumRisk(IntEnum):
         for m in cls:
             if m.label == value:
                 return m
-        return cls.PQ_SAFE
+        # Unknown/corrupted label (e.g. a report written by a newer QER with a
+        # risk class this build doesn't know): fail toward the worst assessable
+        # bucket rather than silently downgrading a finding to pq-safe.
+        return cls.QUANTUM_VULNERABLE
 
 
 class Severity(IntEnum):
@@ -153,6 +156,7 @@ class ScanResult:
     pq_groups_supported: list[str] = field(default_factory=list)
     pq_preferred: Optional[bool] = None
     starttls: Optional[str] = None              # STARTTLS dialect used to reach TLS, if any
+    legacy_only: bool = False                   # only completed a handshake at SECLEVEL=0 (legacy TLS/ciphers)
     openssl_version: str = ""
     scanned_at: Optional[str] = None
 
@@ -278,6 +282,7 @@ def scan_result_from_dict(d: dict) -> ScanResult:
         pq_kex_negotiated=d.get("pq_kex_negotiated"), pq_testable=bool(d.get("pq_testable", False)),
         pq_groups_supported=list(d.get("pq_groups_supported", [])),
         pq_preferred=d.get("pq_preferred"), starttls=d.get("starttls"),
+        legacy_only=bool(d.get("legacy_only", False)),
         openssl_version=d.get("openssl_version", ""),
         scanned_at=d.get("scanned_at"))
 

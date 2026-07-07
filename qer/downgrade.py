@@ -22,6 +22,7 @@ import datetime as dt
 import json
 from typing import Optional
 
+from .classify import classify_protocol
 from .models import EndpointReport, Finding, QuantumRisk, ScanResult, Severity
 
 BASELINE_VERSION = 1
@@ -102,13 +103,16 @@ def compare(scan: ScanResult, prev: dict) -> list[Finding]:
             recommendation="Investigate the configuration change; confirm it was intentional and not an attack or rollback.",
         ))
 
-    # Protocol version downgrade
+    # Protocol version downgrade. Label the risk by the version we *landed on*: a
+    # drop to TLS 1.0/1.1 is broken-now, whereas TLS 1.3 -> 1.2 is merely
+    # quantum-vulnerable — hardcoding broken-now would mislabel the latter.
     new_rank, old_rank = _rank(scan.negotiated_version), _rank(prev.get("negotiated_version"))
     if new_rank is not None and old_rank is not None and new_rank < old_rank:
+        landed_risk = classify_protocol(scan.negotiated_version)[0]
         add("QER-DG-PROTO", "TLS version downgrade detected",
             f"Negotiated TLS version dropped from {prev.get('negotiated_version')} to {scan.negotiated_version}.",
             f"{prev.get('negotiated_version')} -> {scan.negotiated_version}",
-            risk=QuantumRisk.BROKEN_NOW)
+            risk=max(landed_risk, QuantumRisk.QUANTUM_VULNERABLE))
 
     # New legacy versions accepted
     new_weak = set(scan.weak_versions) - set(prev.get("weak_versions", []))
