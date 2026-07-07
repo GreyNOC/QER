@@ -139,9 +139,11 @@ def test_rule_empty_condition_never_fires():          # B3
     ("unknown-4587", "pq"),          # SecP256r1MLKEM768
     ("x25519", "classical"),
     ("unknown-99999", "classical"),  # a genuinely unknown codepoint stays classical
+    ("unknown-abc", "classical"),    # QAQC C9: non-numeric suffix -> ValueError fallback
+    ("unknown-", "classical"),       # QAQC C9: empty suffix
     ("", "none"),
 ])
-def test_zeek_unknown_codepoints_classified(curve, kind):   # B14
+def test_zeek_unknown_codepoints_classified(curve, kind):   # B14 + C9
     from qer.passive import classify_curve
     assert classify_curve(curve) == kind
 
@@ -197,7 +199,13 @@ def test_des_prose_not_flagged():                     # B15
 
 def test_x448_hex_literal_not_flagged():              # B15
     assert "QER-CODE-EDDSA" not in _scan("const mask = 0x448;")
+    assert "QER-CODE-EDDSA" not in _scan("addr = 0x25519;")
     assert "QER-CODE-EDDSA" in _scan("kex = 'X25519MLKEM768'")
+
+
+def test_x25519_camelcase_still_flagged():            # QAQC C1 (regression of B15 fix)
+    assert "QER-CODE-EDDSA" in _scan("const clientX25519Key = generateX25519();")
+    assert "QER-CODE-EDDSA" in _scan("priv := newX448()")
 
 
 def test_falcon_framework_not_flagged():              # B15
@@ -317,3 +325,150 @@ def test_cli_normalizes_pq_group_case(monkeypatch):   # A2C2
                    "--no-color", "--quiet"])
     assert captured.get("pq_groups") == ["X25519MLKEM768"]
     assert rc == 0
+
+
+def test_discover_preserves_target_annotations(monkeypatch, tmp_path):   # C7
+    import qer.cli as cli
+    tf = tmp_path / "targets.txt"
+    tf.write_text("10.0.0.5:443 sensitivity=5 shelf_life=15 expect_pq=true\n")
+
+    monkeypatch.setattr(cli, "discover_services",
+                        lambda hosts, ports, **k: [("10.0.0.5", 8443)])
+    captured = {}
+
+    def fake_build_reports(profiles, **kw):
+        captured["profiles"] = list(profiles)
+        return [], {"tool_version": "t"}, []
+
+    monkeypatch.setattr(cli, "build_reports", fake_build_reports)
+    rc = cli.main(["scan", "-f", str(tf), "--discover", "--no-color", "--quiet"])
+    assert rc == 0
+    p = captured["profiles"][0]
+    # discovered service inherits the seed host's business context (port swapped)
+    assert (p.host, p.port) == ("10.0.0.5", 8443)
+    assert p.sensitivity == 5 and p.shelf_life_years == 15 and p.expect_pq is True
+
+
+# --------------------------------------------------------------------------- #
+# scoring.py — PQ-unverified messaging (C3)
+# --------------------------------------------------------------------------- #
+
+def test_pq_unverified_distinguishes_disabled_from_errored():   # C3
+    from qer.models import AssetProfile, ScanResult
+    from qer.scoring import generate_findings, score_endpoint
+
+    prof = AssetProfile(host="h", port=443, expect_pq=True)
+
+    def unverified(pq_probe_ran):
+        scan = ScanResult(host="h", port=443, reachable=True, negotiated_version="TLSv1.3",
+                          pq_testable=False, pq_probe_ran=pq_probe_ran)
+        fs = generate_findings(prof, scan, score_endpoint(prof, scan))
+        return next(f for f in fs if f.id == "QER-PQ-UNVERIFIED")
+
+    assert "disabled" in unverified(False).title            # --no-pq
+    assert "errored" in unverified(True).title               # probe ran, all groups errored
+
+
+# --------------------------------------------------------------------------- #
+# report.py / scanner.py — legacy_only surfacing + retry failure (C4, C5, C6)
+# --------------------------------------------------------------------------- #
+
+def test_legacy_only_shown_in_console():                # C4
+    from qer.models import AssetProfile, EndpointReport, ScanResult
+    from qer.report import render_console
+    from qer.scoring import score_endpoint
+
+    prof = AssetProfile(host="h", port=443)
+    scan = ScanResult(host="h", port=443, reachable=True, legacy_only=True,
+                      negotiated_version="TLSv1", negotiated_cipher="ECDHE-RSA-AES256-SHA",
+                      key_exchange="ECDHE")
+    rep = EndpointReport(profile=prof, scan=scan, scores=score_endpoint(prof, scan))
+    text = render_console([rep], {"tool_version": "test"}, color=False)
+    assert "legacy-only" in text
+
+
+def test_legacy_retry_failure_is_unreachable(monkeypatch):   # C5
+    import ssl as _ssl
+
+    from qer import scanner
+    from qer.models import AssetProfile
+
+    calls = {"n": 0}
+
+    def fake_connect(host, port, ctx, timeout, starttls=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _ssl.SSLError("proto")        # default-seclevel handshake fails
+        raise OSError("refused on retry")       # seclevel0 retry also fails
+
+    monkeypatch.setattr(scanner, "_connect", fake_connect)
+    r = scanner.scan_endpoint(AssetProfile(host="127.0.0.1", port=443),
+                              enumerate_versions=False, do_pq_probe=False, do_chain=False)
+    assert r.reachable is False
+    assert "OSError" in (r.error or "")
+    assert calls["n"] == 2 and r.legacy_only is False
+
+
+def test_certkey_primitive_when_leaf_unparseable(monkeypatch):   # C6
+    from qer import scanner
+    from qer.models import AssetProfile, CertInfo, QuantumRisk
+
+    class _FakeSock:
+        def version(self):
+            return "TLSv1.3"
+
+        def cipher(self):
+            return ("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)
+
+        def getpeercert(self, binary_form=False):
+            return None                          # no stdlib leaf DER
+
+        def close(self):
+            pass
+
+    def fake_parse(der):
+        if der == b"bad":
+            raise ValueError("unparseable leaf")
+        return CertInfo(subject="s", issuer="i", serial="1", public_key_algorithm="RSA",
+                        public_key_bits=2048, signature_algorithm="sha256WithRSAEncryption",
+                        is_self_signed=(der == b"root"), quantum_risk=QuantumRisk.QUANTUM_VULNERABLE)
+
+    monkeypatch.setattr(scanner, "_connect", lambda *a, **k: _FakeSock())
+    monkeypatch.setattr(scanner, "fetch_certificate_chain", lambda *a, **k: [b"bad", b"inter", b"root"])
+    monkeypatch.setattr(scanner, "_parse_certificate", fake_parse)
+
+    r = scanner.scan_endpoint(AssetProfile(host="127.0.0.1", port=443),
+                              enumerate_versions=False, do_pq_probe=False, do_chain=True)
+    # leaf failed to parse: no cert is labelled "leaf", but a certificate-key
+    # primitive is still emitted (from the first surviving cert).
+    assert r.certificates and all(c.position != "leaf" for c in r.certificates)
+    assert any(p.role == "certificate-key" for p in r.primitives)
+
+
+# --------------------------------------------------------------------------- #
+# starttls.py — read caps (C8)
+# --------------------------------------------------------------------------- #
+
+def test_starttls_read_caps():                          # C8
+    import time
+
+    from qer import starttls
+    from qer.starttls import StartTLSError, _Net, _read_multiline_smtp
+
+    net = _Net(sock=None, deadline=time.monotonic() + 5)
+    with pytest.raises(StartTLSError, match="too large"):
+        net.read_exact(starttls._MAX_READ + 1)          # cap checked before touching the socket
+
+    class _Flood:
+        def settimeout(self, t):
+            pass
+
+        def recv(self, n):
+            return b"250-x\r\n"                          # endless continuation lines
+
+        def sendall(self, d):
+            pass
+
+    net2 = _Net(sock=_Flood(), deadline=time.monotonic() + 5)
+    with pytest.raises(StartTLSError, match="too many"):
+        _read_multiline_smtp(net2)

@@ -153,6 +153,7 @@ class ScanResult:
     #                        tolerates it (accepts classical when offered); None=untested
     pq_kex_negotiated: Optional[bool] = None
     pq_testable: bool = False
+    pq_probe_ran: bool = False                   # the active probe executed (vs --no-pq); may still be untestable if every group errored
     pq_groups_supported: list[str] = field(default_factory=list)
     pq_preferred: Optional[bool] = None
     starttls: Optional[str] = None              # STARTTLS dialect used to reach TLS, if any
@@ -280,6 +281,7 @@ def scan_result_from_dict(d: dict) -> ScanResult:
         primitives=[crypto_primitive_from_dict(x) for x in d.get("primitives", [])],
         certificates=[cert_info_from_dict(x) for x in d.get("certificates", [])],
         pq_kex_negotiated=d.get("pq_kex_negotiated"), pq_testable=bool(d.get("pq_testable", False)),
+        pq_probe_ran=bool(d.get("pq_probe_ran", False)),
         pq_groups_supported=list(d.get("pq_groups_supported", [])),
         pq_preferred=d.get("pq_preferred"), starttls=d.get("starttls"),
         legacy_only=bool(d.get("legacy_only", False)),

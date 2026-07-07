@@ -4,6 +4,40 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-07-07
+
+A self-QA/QC pass over the v0.2.1 changeset itself: a 4-dimension adversarial
+review (regressions / interaction effects / coverage / docs) of the just-shipped
+fixes confirmed 12 issues (0 false positives). All fixed. 268 tests (was 257),
+coverage 79% → 81%.
+
+### Fixed
+- **Codescan regression from the v0.2.1 hex guard** — the `x448`/`x25519`
+  lookbehind over-excluded camelCase identifiers, so `generateX25519()` /
+  `newX448()` were no longer flagged (a false negative v0.2.0 didn't have). The
+  guard now excludes only the `0x` hex-literal prefix.
+- **Self-contradicting IKE finding on PQ gateways** — the new ML-KEM entries
+  (IDs 35–37) made a post-quantum gateway emit `QER-IKE-DH` "Quantum-vulnerable
+  IKE key exchange" with `quantum_risk: pq-safe` in the same finding. The finding
+  is now gated on actual risk, and PQ groups get a positive `QER-IKE-PQ-OK`.
+- **"Probe disabled" vs "probe errored" disambiguated** — an all-errored PQ probe
+  (v0.2.1's untestable state) was reported by `QER-PQ-UNVERIFIED` as "probe
+  disabled (--no-pq)". A new `ScanResult.pq_probe_ran` field distinguishes the
+  states and the finding now says which happened and what to do.
+- **`legacy_only` is now visible** — v0.2.1 set and serialized the flag but never
+  displayed it; the console endpoint block and HTML report card now show
+  `legacy-only (SECLEVEL=0)`.
+
+### Added
+- Regression/coverage tests for the v0.2.1 branches that shipped untested:
+  legacy-retry failure path, leaf-unparseable certificate-key fallback,
+  `--discover` annotation preservation, STARTTLS read caps, Zeek `unknown-`
+  codepoint fallback, IKE ML-KEM finding gating.
+
+### Docs
+- `--pq-groups` help text now states the real default (3 groups) and the new
+  validation behavior; README test count and example banner brought current.
+
 ## [0.2.1] — 2026-07-06
 
 A whole-project QA/QC pass. Three parallel review agents (protocol scanners,

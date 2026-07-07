@@ -231,7 +231,18 @@ def generate_ike_findings(result: IkeResult) -> list:
         return out
 
     dh = result.chosen.get("dh-group")
-    if dh:
+    if dh and _DH.get(dh["id"], ("", QV))[1] == PQ:
+        # A post-quantum key-exchange method (ML-KEM, RFC 9370) — report it as good.
+        out.append(Finding(id="QER-IKE-PQ-OK",
+            title=f"Post-quantum IKE key exchange negotiated ({dh['name']})",
+            severity=Severity.INFO, quantum_risk=QuantumRisk.PQ_SAFE, category="inventory",
+            host=host, port=port,
+            description="The VPN gateway negotiates a post-quantum key-exchange method; IPsec tunnels "
+                        "are not harvest-now-decrypt-later exposed on key exchange.",
+            evidence=f"DH group {dh['id']} = {dh['name']}",
+            recommendation="Confirm the PQ method is a vetted implementation and enforced fleet-wide.",
+            references=[REF_NIST_PQC]))
+    elif dh:
         risk = _DH.get(dh["id"], ("", QV))[1]
         sev = Severity.HIGH if risk == BN else Severity.MEDIUM
         out.append(Finding(id="QER-IKE-DH",

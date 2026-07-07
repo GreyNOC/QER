@@ -9,5 +9,5 @@ The design principle: do not invent a new cipher. Build the thing defenders
 actually lack — visibility.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __all__ = ["__version__"]
