@@ -362,6 +362,7 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
 
     # --- active post-quantum / hybrid key-exchange probe ---
     if do_pq_probe:
+        result.pq_probe_ran = True
         pq = probe_pq(host, port, timeout=timeout, groups=pq_groups, starttls=starttls)
         result.pq_testable = pq["testable"]
         result.pq_groups_supported = pq["supported_groups"]

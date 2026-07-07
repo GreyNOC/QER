@@ -360,15 +360,25 @@ def generate_findings(profile: AssetProfile, scan: ScanResult, scores: Scores) -
             references=[REF_NIST_PQC],
         ))
     elif profile.expect_pq and not scan.pq_testable:
+        # Two distinct "not testable" states: the probe was disabled (--no-pq),
+        # or it ran but every group errored (middlebox RST / timeout / bad name).
+        if scan.pq_probe_ran:
+            reason = ("the active PQ probe ran but every group errored (network reset, timeout, or an "
+                      "unsupported group name), so PQ support is indeterminate")
+            title = "Expected hybrid/PQ key exchange could not be verified (probe errored)"
+            reco = "Re-run the probe (check reachability / --pq-groups names); a middlebox may be resetting raw probes."
+        else:
+            reason = "the active PQ probe was disabled (--no-pq), so PQ support was not tested"
+            title = "Expected hybrid/PQ key exchange could not be verified (probe disabled)"
+            reco = "Re-run without --no-pq to actively probe hybrid PQ support."
         out.append(Finding(
             id="QER-PQ-UNVERIFIED",
-            title="Expected hybrid/PQ key exchange could not be verified (probe disabled)",
+            title=title,
             severity=Severity.MEDIUM, quantum_risk=QuantumRisk.QUANTUM_VULNERABLE,
             category="downgrade", host=host, port=port,
-            description="This asset is flagged expect_pq=true, but the active PQ probe was disabled "
-                        "(--no-pq), so PQ support was not tested.",
-            evidence=f"pq_testable={scan.pq_testable}",
-            recommendation="Re-run without --no-pq to actively probe hybrid PQ support.",
+            description=f"This asset is flagged expect_pq=true, but {reason}.",
+            evidence=f"pq_testable={scan.pq_testable}; pq_probe_ran={scan.pq_probe_ran}",
+            recommendation=reco,
             references=[REF_NIST_PQC],
         ))
 

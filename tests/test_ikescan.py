@@ -54,6 +54,25 @@ def test_encr_keylen_drives_symmetric_risk():
         assert r.chosen["encryption"]["quantum_risk"] == expect
 
 
+def test_mlkem_dh_group_not_flagged_vulnerable():   # QAQC C2
+    # A PQ key-exchange method (ML-KEM-768, id 36) must not emit the
+    # "quantum-vulnerable IKE key exchange" finding — it gets a positive one.
+    r = parse_response(_response([_transform(True, _T_DH, 36)]))
+    classify(r)
+    assert r.chosen["dh-group"]["quantum_risk"] == "pq-safe"
+    ids = {f.id for f in generate_ike_findings(r)}
+    assert "QER-IKE-DH" not in ids
+    assert "QER-IKE-PQ-OK" in ids
+
+
+def test_classical_dh_group_still_flagged():        # QAQC C2 guard
+    r = parse_response(_response([_transform(True, _T_DH, 19)]))   # ECP-256
+    classify(r)
+    ids = {f.id for f in generate_ike_findings(r)}
+    assert "QER-IKE-DH" in ids
+    assert "QER-IKE-PQ-OK" not in ids
+
+
 def test_legacy_transforms_classified_and_flagged():
     transforms = [
         _transform(False, _T_ENCR, 3),       # 3DES (broken)

@@ -100,8 +100,9 @@ def _endpoint_block(r: EndpointReport, paint: _Painter, min_sev: Severity) -> li
 
     fs = "yes" if scan.forward_secret else paint("NO", "red") if scan.forward_secret is False else "?"
     via = paint(f"  via STARTTLS({scan.starttls})", "cyan") if scan.starttls else ""
+    legacy = paint("  legacy-only (SECLEVEL=0)", "red") if scan.legacy_only else ""
     lines.append(f"    {scan.negotiated_version}  {scan.negotiated_cipher}  "
-                 f"kex={scan.key_exchange}  fs={fs}{via}")
+                 f"kex={scan.key_exchange}  fs={fs}{via}{legacy}")
     if scan.pq_testable:
         if scan.pq_groups_supported:
             tag = "enforced" if scan.pq_preferred else "classical accepted"

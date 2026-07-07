@@ -107,8 +107,9 @@ _RULES = [
        r'getInstance\(\s*"EC"|secp256r1|secp384r1|secp521r1|prime256v1|nistp(?:256|384|521))',
        "QER-CODE-EC", "Elliptic-curve (ECDSA/ECDH) usage", QV, Severity.MEDIUM, "code-asymmetric",
        "Elliptic-curve crypto is broken by Shor; track for PQC migration."),
-    # x25519/x448 are guarded against hex literals (0x448, idx448) by a lookbehind.
-    _r(r'(?i)(ed25519|ed448|curve25519|(?<![0-9a-z])x(?:25519|448))',
+    # x25519/x448 exclude only the `0x` hex-literal prefix (0x448); camelCase
+    # identifiers like generateX25519() must still match.
+    _r(r'(?i)(ed25519|ed448|curve25519|(?<!0)x(?:25519|448))',
        "QER-CODE-EDDSA", "Edwards/Montgomery curve (Ed25519/X25519) usage", QV, Severity.MEDIUM,
        "code-asymmetric", "Curve25519/448 are elliptic-curve; quantum-vulnerable."),
     _r(r'(?i)(diffiehellman|dh_generate|dhparam|crypto/dh\b|getInstance\(\s*"DiffieHellman")',

@@ -468,7 +468,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="force a STARTTLS dialect for all targets "
                         "(smtp|imap|pop3|ldap|postgres|mysql|none); default: infer from port")
     s.add_argument("--pq-groups",
-                   help="comma list of PQ groups to probe (default: X25519MLKEM768,X25519Kyber768Draft00)")
+                   help="comma list of PQ groups to probe, case-insensitive; unknown names error out "
+                        "(default: X25519MLKEM768,SecP256r1MLKEM768,X25519Kyber768Draft00)")
     s.add_argument("--horizon", default="baseline",
                    choices=["aggressive", "baseline", "conservative"],
                    help="CRQC-arrival scenario for the exposure horizon (default baseline ~2035)")

@@ -209,6 +209,9 @@ function barColor(v){ return v>=70?"var(--crit)":v>=45?"var(--med)":v>=20?"var(-
     if((scan.weak_versions||[]).length){
       card.append(el("div","kv warn","legacy accepted: "+scan.weak_versions.join(", ")));
     }
+    if(scan.legacy_only){
+      card.append(el("div","kv warn","legacy-only (handshake required SECLEVEL=0)"));
+    }
 
     if(scan.pq_testable){
       var sup = scan.pq_groups_supported||[];
