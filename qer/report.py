@@ -332,6 +332,14 @@ def render_ssh_console(result, meta: dict | None = None, color: bool = True) -> 
         out.append(f"  {paint('no SSH response', 'grey')}  {result.error or ''}")
         return "\n".join(out)
 
+    # Reachable, but the banner read succeeded while the KEXINIT read/parse did
+    # not (timeout, non-SSH service, hostile dribble): we have no algorithm lists,
+    # so don't render a confident "no PQ key exchange" verdict off empty data.
+    if not result.kex_algorithms:
+        out.append(f"  {paint('scan incomplete', 'yellow', 'bold')}  "
+                   f"{result.error or 'no KEXINIT received after banner'}")
+        return "\n".join(out)
+
     # PQ verdict banner
     if result.pq_kex_preferred:
         out.append("  " + paint(f"● post-quantum key exchange PREFERRED ({result.preferred_kex})", "green", "bold"))

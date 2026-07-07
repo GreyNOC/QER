@@ -36,6 +36,12 @@ STARTTLS_PORTS: dict[int, str] = {
 DIALECTS = {"smtp", "imap", "pop3", "ldap", "postgres", "mysql"}
 _DISABLE = {"", "none", "off", "no", "false", "direct"}
 
+# A STARTTLS greeting/response is tiny; cap what a single read may buffer so a
+# hostile server can't claim a 4 GiB BER length (or stream endless continuation
+# lines) and exhaust memory within the deadline window.
+_MAX_READ = 256 * 1024
+_MAX_SMTP_LINES = 256
+
 
 class StartTLSError(Exception):
     """A STARTTLS negotiation failed before TLS could begin."""
@@ -98,6 +104,8 @@ class _Net:
             self._fill()
 
     def read_exact(self, n: int) -> bytes:
+        if n > _MAX_READ:
+            raise StartTLSError(f"STARTTLS response too large ({n} bytes)")
         while len(self.buf) < n:
             self._fill(n - len(self.buf))
         out = bytes(self.buf[:n])
@@ -124,6 +132,8 @@ def _read_multiline_smtp(net: _Net) -> list[str]:
         # a code is 3 digits; '-' after it means more lines follow, ' ' means last
         if len(line) < 4 or line[3] != "-":
             break
+        if len(lines) >= _MAX_SMTP_LINES:
+            raise StartTLSError("too many SMTP continuation lines")
     return lines
 
 

@@ -40,19 +40,30 @@ QV, BN, PQ, WK = (QuantumRisk.QUANTUM_VULNERABLE, QuantumRisk.BROKEN_NOW,
                   QuantumRisk.PQ_SAFE, QuantumRisk.QUANTUM_WEAKENED)
 
 # Transform ID -> (name, base quantum risk). Key length refines symmetric risk.
-_ENCR = {3: ("3DES", BN), 11: ("NULL", BN), 12: ("AES-CBC", WK), 13: ("AES-CTR", WK),
+# IDs per the IANA IKEv2 Transform Type 1 (Encryption) registry.
+_ENCR = {2: ("DES", BN), 3: ("3DES", BN), 11: ("NULL", BN),
+         12: ("AES-CBC", WK), 13: ("AES-CTR", WK),
+         14: ("AES-CCM-8", WK), 15: ("AES-CCM-12", WK), 16: ("AES-CCM-16", WK),
          18: ("AES-GCM-8", WK), 19: ("AES-GCM-12", WK), 20: ("AES-GCM-16", WK),
-         23: ("AES-CCM-16", WK), 28: ("ChaCha20-Poly1305", PQ), 2: ("DES", BN)}
+         23: ("Camellia-CBC", WK), 28: ("ChaCha20-Poly1305", PQ)}
 _PRF = {1: ("HMAC-MD5", BN), 2: ("HMAC-SHA1", BN), 5: ("HMAC-SHA2-256", PQ),
         6: ("HMAC-SHA2-384", PQ), 7: ("HMAC-SHA2-512", PQ)}
 _INTEG = {1: ("HMAC-MD5-96", BN), 2: ("HMAC-SHA1-96", BN), 5: ("AES-XCBC-96", PQ),
           12: ("HMAC-SHA2-256-128", PQ), 13: ("HMAC-SHA2-384-192", PQ),
           14: ("HMAC-SHA2-512-256", PQ)}
+# Transform Type 4 (Key Exchange Method). All classical (EC)DH groups are
+# Shor-breakable (QV); the RFC 5114 MODP-1024 subgroup (22) is also legacy-weak;
+# the standardised ML-KEM key-exchange methods (35-37) are PQ-safe.
 _DH = {1: ("MODP-768", BN), 2: ("MODP-1024", BN), 5: ("MODP-1536", QV),
        14: ("MODP-2048", QV), 15: ("MODP-3072", QV), 16: ("MODP-4096", QV),
        17: ("MODP-6144", QV), 18: ("MODP-8192", QV), 19: ("ECP-256", QV),
-       20: ("ECP-384", QV), 21: ("ECP-521", QV), 31: ("Curve25519", QV),
-       32: ("Curve448", QV)}
+       20: ("ECP-384", QV), 21: ("ECP-521", QV),
+       22: ("MODP-1024-160", BN), 23: ("MODP-2048-224", QV), 24: ("MODP-2048-256", QV),
+       27: ("brainpoolP224r1", QV), 28: ("brainpoolP256r1", QV),
+       29: ("brainpoolP384r1", QV), 30: ("brainpoolP512r1", QV),
+       31: ("Curve25519", QV), 32: ("Curve448", QV),
+       33: ("GOST3410-2012-256", QV), 34: ("GOST3410-2012-512", QV),
+       35: ("ML-KEM-512", PQ), 36: ("ML-KEM-768", PQ), 37: ("ML-KEM-1024", PQ)}
 _TTYPE = {_T_ENCR: ("encryption", _ENCR), _T_PRF: ("prf", _PRF),
           _T_INTEG: ("integrity", _INTEG), _T_DH: ("dh-group", _DH)}
 

@@ -178,22 +178,30 @@ def match_unknown_keys(cond: Any, path: str = "match") -> list[str]:
     return out
 
 
+def _match_key(key: str, cond: dict, facts: dict) -> bool:
+    if key == "all":
+        return all(match(c, facts) for c in cond["all"])
+    if key == "any":
+        return any(match(c, facts) for c in cond["any"])
+    if key == "not":
+        return not match(cond["not"], facts)
+    if key == "primitive":
+        return any(_obj_match(cond["primitive"], p) for p in facts.get("primitives", []))
+    if key == "certificate":
+        return any(_obj_match(cond["certificate"], c) for c in facts.get("certificates", []))
+    return _obj_match(cond["scan"], facts)          # key == "scan"
+
+
 def match(cond: Any, facts: dict) -> bool:
     if not isinstance(cond, dict):
         return False
-    if "all" in cond:
-        return all(match(c, facts) for c in cond["all"])
-    if "any" in cond:
-        return any(match(c, facts) for c in cond["any"])
-    if "not" in cond:
-        return not match(cond["not"], facts)
-    if "primitive" in cond:
-        return any(_obj_match(cond["primitive"], p) for p in facts.get("primitives", []))
-    if "certificate" in cond:
-        return any(_obj_match(cond["certificate"], c) for c in facts.get("certificates", []))
-    if "scan" in cond:
-        return _obj_match(cond["scan"], facts)
-    return False
+    # Every recognised key present must hold (implicit AND) — so a natural
+    # {"scan": ..., "certificate": ...} means both, not just the first checked.
+    # An empty / all-unknown condition never fires.
+    present = [k for k in _MATCH_KEYS if k in cond]
+    if not present:
+        return False
+    return all(_match_key(k, cond, facts) for k in present)
 
 
 # --------------------------------------------------------------------------- #

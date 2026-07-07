@@ -36,7 +36,7 @@ def test_try_extract_server_hello_done_without_cert():
     assert _try_extract_certificate(shd) == []
 
 
-def test_parse_chain_leaf_label_survives_parse_failure(monkeypatch):
+def test_parse_chain_position_by_original_index(monkeypatch):
     from qer import scanner
     from qer.models import CertInfo, QuantumRisk
 
@@ -48,9 +48,13 @@ def test_parse_chain_leaf_label_survives_parse_failure(monkeypatch):
                         is_self_signed=(der == b"root"), quantum_risk=QuantumRisk.QUANTUM_VULNERABLE)
 
     monkeypatch.setattr(scanner, "_parse_certificate", fake_parse)
-    # leaf DER fails to parse; the next surviving cert must still be labelled "leaf"
-    chain = scanner._parse_chain([b"bad", b"leaf", b"inter", b"root"])
-    assert [c.position for c in chain] == ["leaf", "intermediate", "root"]
+    # The chain is leaf-first. When the leaf (index 0) fails to parse, a surviving
+    # CA must NOT be promoted to "leaf" — positions follow the original index.
+    chain = scanner._parse_chain([b"bad", b"inter", b"inter2", b"root"])
+    assert [c.position for c in chain] == ["intermediate", "intermediate", "root"]
+    # When the leaf parses cleanly it is labelled "leaf".
+    chain2 = scanner._parse_chain([b"leaf", b"inter", b"root"])
+    assert [c.position for c in chain2] == ["leaf", "intermediate", "root"]
 
 
 def test_recv_exact_respects_deadline():

@@ -4,6 +4,63 @@ All notable changes to GreyNOC Quantum Exposure Radar (QER) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-07-06
+
+A whole-project QA/QC pass. Three parallel review agents (protocol scanners,
+classification/scoring logic, exporters/CLI) raised 34 findings; adversarial
+verification (one skeptic per finding, plus IANA-registry fact-checks)
+**confirmed 16 real issues and refuted 2**. All 16 are fixed with regression
+tests. 257 tests (was 220).
+
+### Fixed
+- **Legacy-only endpoints no longer vanish** — the primary handshake ran only at
+  the default OpenSSL security level, so a TLS 1.0-only / legacy-cipher-only
+  appliance was reported *unreachable* instead of flagged. It now retries once at
+  `SECLEVEL=0` and tags the result `legacy_only`.
+- **False CRITICAL PQ-downgrade alert eliminated** — when every PQ probe errored
+  (all groups unreachable, or a typo'd `--pq-groups`), `probe_pq` reported a
+  confident "no PQ support", which could fire a bogus `QER-DG-PQ` page against a
+  baseline that had seen PQ. All-errored probes are now *untestable*
+  (`pq_kex_negotiated=None`), and `--pq-groups` values are validated/canonicalised
+  (unknown names error out).
+- **IKEv2 encryption codepoints corrected to IANA** — transform ID 23 was labelled
+  `AES-CCM-16`; per the registry 23 is `Camellia-CBC` and `AES-CCM-16` is ID 16.
+  The DH/key-exchange table gained the RFC 5114 MODP groups, brainpool, GOST, and
+  the standardised **ML-KEM** key-exchange methods (IDs 35–37, classified PQ-safe).
+- **Passive PQ measurement no longer inverted on older Zeek** — a hybrid group
+  logged by raw codepoint (`unknown-4588` = X25519MLKEM768, etc.) was counted as
+  *classical*, so a fully-PQ service read as "0% PQ, all HNDL-exposed". Known
+  codepoints are now resolved; the emitted Zeek script recognises both spellings.
+- **Emitted Zeek script: no `No_Forward_Secrecy` storm on TLS 1.3** — TLS 1.3 suite
+  names carry no `ECDHE` token but are always forward-secret; they are now matched
+  explicitly.
+- **Rule engine: multi-key conditions are implicit-AND** — a `{scan, certificate}`
+  condition silently evaluated only one leg; both legs must now hold, and an empty
+  condition never fires.
+- **Classification fixes** — anonymous suites (`ADH-*`/`AECDH-*`) are ephemeral and
+  now scored forward-secret (not static-RSA); SHAKE128/256 signatures (RFC 8692) are
+  no longer mislabelled SHA-1; MD2/MD4 signature hashes are now `broken-now`;
+  XMSS/HSS-LMS (NIST SP 800-208) classify as PQ-safe.
+- **`QER-DG-PROTO` risk reflects the landed version** — a TLS 1.3→1.2 downgrade is
+  `quantum-vulnerable`, not hardcoded `broken-now` (only a drop to TLS ≤1.1 is).
+- **Code-scanner false positives removed** — bare "des" in prose no longer trips the
+  weak-cipher rule; `x448`/`x25519` no longer match hex literals (`0x448`); the
+  Falcon *web framework* no longer reads as PQ (level-qualified now). New detections:
+  Java `SHA1withRSA`/`HmacSHA1`, single-quoted `alg:'none'`, and `python-jose`/
+  `node-jose` dependencies.
+- **Deserializer fails safe** — an unknown `quantum_risk` label (e.g. from a newer
+  QER) now deserializes to `quantum-vulnerable`, not the best-case `pq-safe`.
+- **STARTTLS reads are bounded** — an LDAP BER length (up to 4 GiB) or an endless
+  SMTP multiline reply could exhaust memory within the deadline; reads are now capped.
+- **Certificate chain: leaf position by original index** — an unparseable leaf no
+  longer promotes an intermediate CA to `leaf`.
+- **SSH: no confident verdict on incomplete scans** — a banner-read-then-KEXINIT-fail
+  now prints "scan incomplete" instead of a false "no post-quantum key exchange".
+
+### Changed
+- Default PQ probe set adds `SecP256r1MLKEM768` (CNSA/enterprise stacks enable only
+  the P-256 hybrid).
+
 ## [0.2.0] — 2026-06-28
 
 A major expansion of the detection engine: QER now sees crypto well beyond

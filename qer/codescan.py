@@ -50,6 +50,8 @@ CRYPTO_LIBS = {
     "pyjwt": (Severity.MEDIUM, "JWT library — commonly used with RS*/ES* (quantum-vulnerable) signatures."),
     "jsonwebtoken": (Severity.MEDIUM, "JWT library — commonly used with RS*/ES* signatures."),
     "jose": (Severity.MEDIUM, "JOSE/JWT library."),
+    "python-jose": (Severity.MEDIUM, "JOSE/JWT library — RS*/ES* signatures (quantum-vulnerable)."),
+    "node-jose": (Severity.MEDIUM, "JOSE/JWT library — RS*/ES* signatures (quantum-vulnerable)."),
     "rsa": (Severity.MEDIUM, "Dedicated RSA library — quantum-vulnerable by design."),
     "ecdsa": (Severity.MEDIUM, "ECDSA library — quantum-vulnerable by design."),
     "elliptic": (Severity.MEDIUM, "Elliptic-curve library — quantum-vulnerable by design."),
@@ -105,7 +107,8 @@ _RULES = [
        r'getInstance\(\s*"EC"|secp256r1|secp384r1|secp521r1|prime256v1|nistp(?:256|384|521))',
        "QER-CODE-EC", "Elliptic-curve (ECDSA/ECDH) usage", QV, Severity.MEDIUM, "code-asymmetric",
        "Elliptic-curve crypto is broken by Shor; track for PQC migration."),
-    _r(r'(?i)(ed25519|ed448|x25519|x448|curve25519)',
+    # x25519/x448 are guarded against hex literals (0x448, idx448) by a lookbehind.
+    _r(r'(?i)(ed25519|ed448|curve25519|(?<![0-9a-z])x(?:25519|448))',
        "QER-CODE-EDDSA", "Edwards/Montgomery curve (Ed25519/X25519) usage", QV, Severity.MEDIUM,
        "code-asymmetric", "Curve25519/448 are elliptic-curve; quantum-vulnerable."),
     _r(r'(?i)(diffiehellman|dh_generate|dhparam|crypto/dh\b|getInstance\(\s*"DiffieHellman")',
@@ -118,10 +121,13 @@ _RULES = [
     _r(r'(?i)(hashlib\.md5|\bMD5\b|getInstance\(\s*"MD5"|createHash\(\s*["\']md5["\']|md5\.new)',
        "QER-CODE-MD5", "MD5 usage", BN, Severity.HIGH, "code-weak",
        "MD5 is broken; replace with SHA-256+ for any security use."),
-    _r(r'(?i)(hashlib\.sha1|\bSHA-?1\b|getInstance\(\s*"SHA-?1"|createHash\(\s*["\']sha1["\'])',
+    _r(r'(?i)(hashlib\.sha1|\bSHA-?1\b|SHA-?1with|Hmac-?SHA-?1|'
+       r'getInstance\(\s*"[^"]*SHA-?1|createHash\(\s*["\']sha1["\'])',
        "QER-CODE-SHA1", "SHA-1 usage", BN, Severity.MEDIUM, "code-weak",
        "SHA-1 is broken for signatures; migrate to SHA-256+."),
-    _r(r'(?i)\b(3?des|desede|rc4|arcfour|blowfish)\b',
+    # Bare lowercase "des" is excluded (matches French/Dutch prose); real DES
+    # usage appears as 3DES/DESede, a des-cbc/ede cipher string, or uppercase DES.
+    _r(r'(?i)\b3des\b|\bdesede\b|\bdes[-/_](?:ede|cbc|ecb)|\brc4\b|\barcfour\b|\bblowfish\b|(?-i:\bDES\b)',
        "QER-CODE-WEAKCIPHER", "Weak/legacy cipher usage", BN, Severity.HIGH, "code-weak",
        "DES/3DES/RC4/Blowfish are obsolete; use AES-256-GCM or ChaCha20."),
     # --- JWT / JWS ---
@@ -131,7 +137,7 @@ _RULES = [
     _r(r'(?i)("alg"\s*:\s*"|algorithm[s]?\s*[=:]\s*\[?\s*["\'])EdDSA',
        "QER-CODE-JWT-EDDSA", "JWT EdDSA signing algorithm", QV, Severity.MEDIUM, "code-jwt",
        "EdDSA is elliptic-curve; quantum-vulnerable."),
-    _r(r'(?i)"alg"\s*:\s*"none"',
+    _r(r'(?i)(["\']alg["\']\s*:\s*["\']none["\']|algorithm[s]?\s*[=:]\s*["\']none["\'])',
        "QER-CODE-JWT-NONE", 'JWT "alg":"none" (signature stripping risk)', BN, Severity.CRITICAL,
        "code-jwt", "Never accept alg=none; it disables signature verification."),
     # --- SAML / XML-DSig signing ---
@@ -145,7 +151,10 @@ _RULES = [
        "QER-CODE-SAML", "SAML / XML-DSig usage", QuantumRisk.PQ_SAFE, Severity.INFO, "code-saml",
        "SAML federation detected; inventory the IdP/SP signing algorithms for PQC migration."),
     # --- post-quantum (good signal) ---
-    _r(r'(?i)\b(ml-?kem|kyber|ml-?dsa|dilithium|slh-?dsa|sphincs|falcon|liboqs|pqcrypto)',
+    # 'falcon' is level/suffix-qualified so the Falcon web framework isn't flagged
+    # as PQ; xmss/hss-lms are the SP 800-208 stateful hash-based signatures.
+    _r(r'(?i)\b(ml-?kem|kyber|ml-?dsa|dilithium|slh-?dsa|sphincs|falcon[-_]?(?:512|1024|padded)|'
+       r'fn-?dsa|xmss|hss-lms|liboqs|pqcrypto)',
        "QER-CODE-PQ", "Post-quantum algorithm/library reference", PQ, Severity.INFO, "code-pq",
        "Post-quantum primitive in use — good. Verify it is a vetted implementation."),
     # --- crypto library imports (inventory) ---

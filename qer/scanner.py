@@ -181,15 +181,15 @@ def _parse_certificate(der: bytes) -> CertInfo:
 
 def _parse_chain(der_list) -> list[CertInfo]:
     """Parse a list of DER certs into CertInfo, labelling position by the index
-    within the *surviving* (successfully parsed) list — so a parse failure on the
-    leaf doesn't shift the 'leaf' label onto a CA."""
+    within the *original* (leaf-first) list — so a parse failure on the leaf
+    doesn't shift the 'leaf' label onto a surviving CA."""
     chain_infos: list[CertInfo] = []
-    for dcert in der_list:
+    for idx, dcert in enumerate(der_list):
         try:
             ci = _parse_certificate(dcert)
         except Exception:
             continue
-        ci.position = ("leaf" if not chain_infos
+        ci.position = ("leaf" if idx == 0
                        else ("root" if ci.is_self_signed else "intermediate"))
         chain_infos.append(ci)
     return chain_infos
@@ -258,9 +258,23 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
         result.ip = None
 
     # --- primary handshake: what does the server actually prefer? ---
+    # A normal client context reflects real-world preference, but on OpenSSL 3.x
+    # the default security level refuses TLS<=1.1 / legacy ciphers outright, so a
+    # legacy-only appliance would look "unreachable". Retry once at SECLEVEL=0 so
+    # such a server is inventoried (and flagged) instead of vanishing.
+    sock = None
     try:
         ctx = _permissive_context()
         sock = _connect(host, port, ctx, timeout, starttls=starttls)
+    except ssl.SSLError:
+        try:
+            ctx = _permissive_context(seclevel0=True)
+            sock = _connect(host, port, ctx, timeout, starttls=starttls)
+            result.legacy_only = True
+        except Exception as exc2:
+            result.reachable = False
+            result.error = f"{type(exc2).__name__}: {exc2}"
+            return result
     except Exception as exc:
         result.reachable = False
         result.error = f"{type(exc).__name__}: {exc}"
@@ -317,8 +331,10 @@ def scan_endpoint(profile: AssetProfile, timeout: float = 6.0,
     elif leaf_info:
         result.certificates = [leaf_info]
 
-    if result.certificates:
+    leaf = next((c for c in result.certificates if c.position == "leaf"), None)
+    if leaf is None and result.certificates:
         leaf = result.certificates[0]
+    if leaf is not None:
         result.primitives.append(CryptoPrimitive(
             role="certificate-key",
             algorithm=(f"{leaf.public_key_algorithm}-{leaf.public_key_bits}"

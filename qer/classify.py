@@ -44,6 +44,7 @@ _PQ_TOKENS = (
     "mldsa", "ml-dsa", "dilithium",      # signatures (FIPS 204)
     "slhdsa", "slh-dsa", "sphincs",      # hash-based signatures (FIPS 205)
     "fndsa", "fn-dsa", "falcon",         # signatures (FIPS 206, draft)
+    "xmss", "hss-lms", "lms",            # stateful hash-based signatures (NIST SP 800-208)
     "frodo", "bike", "hqc", "mceliece",  # alt KEMs
     "sntrup", "ntruprime", "ntrulpr",    # (Streamlined) NTRU Prime (OpenSSH SSH KEX)
 )
@@ -131,7 +132,11 @@ def _detect_kex_auth(name_u: str, is_tls13: bool) -> tuple[str, str]:
 
     kex = "RSA"   # default: classic RSA key transport (no FS) when no prefix present
     auth = "RSA"
-    if name_u.startswith("ECDHE") or name_u.startswith("EECDH"):
+    if name_u.startswith("AECDH"):
+        kex = "ECDHE"                 # anonymous ephemeral ECDH — still forward-secret
+    elif name_u.startswith("ADH"):
+        kex = "DHE"                   # anonymous ephemeral DH — still forward-secret
+    elif name_u.startswith("ECDHE") or name_u.startswith("EECDH"):
         kex = "ECDHE"
     elif name_u.startswith("DHE") or name_u.startswith("EDH"):
         kex = "DHE"
@@ -304,9 +309,13 @@ def classify_signature(sig_alg_name: str) -> tuple[QuantumRisk, Severity, Option
     if is_pq_algorithm(sig_alg_name):
         return QuantumRisk.PQ_SAFE, Severity.INFO, None, "Post-quantum signature."
 
-    # Hash component
-    if "md5" in s:
-        hash_name, hash_risk, hash_sev = "md5", QuantumRisk.BROKEN_NOW, Severity.CRITICAL
+    # Hash component. SHAKE128/256 (RFC 8692) are SHA-3 XOFs and sound, so they
+    # must be excluded from the SHA-1 catch-all below (both contain "sha").
+    if "md5" in s or "md2" in s or "md4" in s:
+        broken_md = "md5" if "md5" in s else ("md2" if "md2" in s else "md4")
+        hash_name, hash_risk, hash_sev = broken_md, QuantumRisk.BROKEN_NOW, Severity.CRITICAL
+    elif "shake" in s:
+        hash_name, hash_risk, hash_sev = "shake", QuantumRisk.PQ_SAFE, Severity.INFO
     elif "sha1" in s or "sha-1" in s or ("sha" in s and "sha2" not in s and "sha256" not in s
                                          and "sha384" not in s and "sha512" not in s and "sha3" not in s):
         hash_name, hash_risk, hash_sev = "sha1", QuantumRisk.BROKEN_NOW, Severity.HIGH
